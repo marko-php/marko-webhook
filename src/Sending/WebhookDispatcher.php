@@ -10,11 +10,13 @@ use Marko\Http\Exceptions\HttpException;
 use Marko\Webhook\Contracts\WebhookDispatcherInterface;
 use Marko\Webhook\Value\WebhookPayload;
 use Marko\Webhook\Value\WebhookResponse;
+use Psr\Clock\ClockInterface;
 
 readonly class WebhookDispatcher implements WebhookDispatcherInterface
 {
     public function __construct(
         private HttpClientInterface $httpClient,
+        private ClockInterface $clock,
     ) {}
 
     /**
@@ -24,7 +26,7 @@ readonly class WebhookDispatcher implements WebhookDispatcherInterface
         WebhookPayload $payload,
     ): WebhookResponse {
         $body = json_encode(['event' => $payload->event, 'data' => $payload->data]);
-        $timestamp = time();
+        $timestamp = $this->clock->now()->getTimestamp();
         $signature = WebhookSignature::sign($body, $payload->secret, $timestamp);
 
         $httpResponse = $this->httpClient->post($payload->url, [

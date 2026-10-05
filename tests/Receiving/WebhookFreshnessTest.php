@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Marko\Webhook\Tests\Receiving;
 
 use Marko\Routing\Http\Request;
+use Marko\Testing\Fake\FakeClock;
 use Marko\Testing\Fake\FakeConfigRepository;
 use Marko\Webhook\Config\WebhookConfig;
 use Marko\Webhook\Exceptions\InvalidSignatureException;
@@ -29,8 +30,16 @@ function makeFreshRequest(
     return new Request(server: $server, body: $body);
 }
 
-function makeReceiverWithTolerance(int $tolerance): WebhookReceiver
+function freshnessNow(): int
 {
+    return 1767268800;
+}
+
+function makeReceiverWithTolerance(
+    int $tolerance,
+    ?FakeClock $clock = null,
+): WebhookReceiver {
+    $clock ??= new FakeClock('@' . freshnessNow());
     $config = new WebhookConfig(new FakeConfigRepository([
         'webhook.timeout' => 30,
         'webhook.max_retries' => 3,
@@ -38,14 +47,14 @@ function makeReceiverWithTolerance(int $tolerance): WebhookReceiver
         'webhook.timestamp_tolerance' => $tolerance,
     ]));
 
-    return new WebhookReceiver(new WebhookVerifier(), $config);
+    return new WebhookReceiver(new WebhookVerifier($clock), $config, $clock);
 }
 
 describe('WebhookReceiver freshness window', function (): void {
     it('accepts a freshly-signed request whose timestamp is within the tolerance window', function (): void {
         $secret = 'my-secret';
         $body = '{"event":"order.created"}';
-        $timestamp = time();
+        $timestamp = freshnessNow();
 
         $receiver = makeReceiverWithTolerance(300);
         $request = makeFreshRequest($secret, $body, $timestamp);
@@ -58,7 +67,7 @@ describe('WebhookReceiver freshness window', function (): void {
     it('rejects a request whose timestamp is older than the tolerance window', function (): void {
         $secret = 'my-secret';
         $body = '{"event":"order.created"}';
-        $timestamp = time() - 301;
+        $timestamp = freshnessNow() - 301;
 
         $receiver = makeReceiverWithTolerance(300);
         $request = makeFreshRequest($secret, $body, $timestamp);
@@ -70,7 +79,7 @@ describe('WebhookReceiver freshness window', function (): void {
     it('rejects a request whose timestamp is in the future beyond the tolerance window', function (): void {
         $secret = 'my-secret';
         $body = '{"event":"order.created"}';
-        $timestamp = time() + 301;
+        $timestamp = freshnessNow() + 301;
 
         $receiver = makeReceiverWithTolerance(300);
         $request = makeFreshRequest($secret, $body, $timestamp);
@@ -82,7 +91,7 @@ describe('WebhookReceiver freshness window', function (): void {
     it('rejects a request when the timestamp header is missing', function (): void {
         $secret = 'my-secret';
         $body = '{"event":"order.created"}';
-        $timestamp = time();
+        $timestamp = freshnessNow();
 
         $receiver = makeReceiverWithTolerance(300);
         $request = makeFreshRequest($secret, $body, $timestamp, omitTimestampHeader: true);
@@ -94,7 +103,7 @@ describe('WebhookReceiver freshness window', function (): void {
     it('accepts a request whose timestamp is exactly at the tolerance boundary', function (): void {
         $secret = 'my-secret';
         $body = '{"event":"order.created"}';
-        $timestamp = time() - 300;
+        $timestamp = freshnessNow() - 300;
 
         $receiver = makeReceiverWithTolerance(300);
         $request = makeFreshRequest($secret, $body, $timestamp);
@@ -109,8 +118,8 @@ describe('WebhookReceiver freshness window', function (): void {
         function (): void {
             $secret = 'my-secret';
             $body = '{"event":"order.created"}';
-            $realTimestamp = time();
-            $tamperedTimestamp = time() - 100;
+            $realTimestamp = freshnessNow();
+            $tamperedTimestamp = freshnessNow() - 100;
 
             // Sign with the real timestamp, but send the tampered timestamp header
             $signature = WebhookSignature::sign($body, $secret, $realTimestamp);
@@ -136,7 +145,7 @@ describe('WebhookReceiver freshness window', function (): void {
             $secret = 'my-secret';
             $body = '{"event":"order.created"}';
             // Use a very tight tolerance of 1 second; a 2-second-old timestamp should be rejected
-            $timestamp = time() - 2;
+            $timestamp = freshnessNow() - 2;
 
             $receiverTight = makeReceiverWithTolerance(1);
             $request = makeFreshRequest($secret, $body, $timestamp);
@@ -157,7 +166,7 @@ describe('WebhookReceiver freshness window', function (): void {
     it('round-trips a payload signed by WebhookSignature through WebhookReceiver successfully', function (): void {
         $secret = 'my-secret';
         $body = '{"event":"order.created","data":{"order_id":123}}';
-        $timestamp = time();
+        $timestamp = freshnessNow();
 
         $signature = WebhookSignature::sign($body, $secret, $timestamp);
 
@@ -181,7 +190,7 @@ describe('WebhookReceiver freshness window', function (): void {
             $secret = 'my-secret';
             $data = ['event' => 'payment.confirmed', 'data' => ['amount' => 9999]];
             $body = json_encode($data);
-            $timestamp = time();
+            $timestamp = freshnessNow();
 
             $signature = WebhookSignature::sign($body, $secret, $timestamp);
 
@@ -199,4 +208,29 @@ describe('WebhookReceiver freshness window', function (): void {
             expect($result)->toBe($data);
         },
     );
+
+    it('rejects a request once the clock moves past the tolerance window', function (): void {
+        $secret = 'my-secret';
+        $body = '{"event":"order.created"}';
+        $clock = new FakeClock('@' . freshnessNow());
+        $receiver = makeReceiverWithTolerance(300, $clock);
+        $request = makeFreshRequest($secret, $body, freshnessNow());
+
+        expect($receiver->receive($request, $secret))->toBe(['event' => 'order.created']);
+
+        $clock->travel('+301 seconds');
+
+        expect(fn () => $receiver->receive($request, $secret))
+            ->toThrow(InvalidSignatureException::class);
+    });
+
+    it('reports the age from the clock in the stale timestamp message', function (): void {
+        $secret = 'my-secret';
+        $body = '{"event":"order.created"}';
+        $receiver = makeReceiverWithTolerance(300);
+        $request = makeFreshRequest($secret, $body, freshnessNow() - 400);
+
+        expect(fn () => $receiver->receive($request, $secret))
+            ->toThrow(InvalidSignatureException::class, 'age: 400s, tolerance: 300s');
+    });
 });

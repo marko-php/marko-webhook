@@ -8,12 +8,14 @@ use Marko\Routing\Http\Request;
 use Marko\Webhook\Config\WebhookConfig;
 use Marko\Webhook\Contracts\WebhookReceiverInterface;
 use Marko\Webhook\Exceptions\InvalidSignatureException;
+use Psr\Clock\ClockInterface;
 
 class WebhookReceiver implements WebhookReceiverInterface
 {
     public function __construct(
         private readonly WebhookVerifier $verifier,
         private readonly WebhookConfig $webhookConfig,
+        private readonly ClockInterface $clock,
     ) {}
 
     /**
@@ -34,9 +36,10 @@ class WebhookReceiver implements WebhookReceiverInterface
         }
 
         $ts = (int) $timestamp;
+        $now = $this->clock->now()->getTimestamp();
 
-        if (abs(time() - $ts) > $this->webhookConfig->timestampTolerance) {
-            throw InvalidSignatureException::staleTimestamp($ts, $this->webhookConfig->timestampTolerance);
+        if (abs($now - $ts) > $this->webhookConfig->timestampTolerance) {
+            throw InvalidSignatureException::staleTimestamp($ts, $this->webhookConfig->timestampTolerance, $now);
         }
 
         if (!$this->verifier->verify(

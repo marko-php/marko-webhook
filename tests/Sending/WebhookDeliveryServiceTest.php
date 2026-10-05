@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Marko\Webhook\Tests\Sending;
 
+use Marko\Testing\Fake\FakeClock;
 use Marko\Webhook\Contracts\WebhookAttemptRepositoryInterface;
 use Marko\Webhook\Entity\WebhookAttempt;
 use Marko\Webhook\Sending\WebhookDeliveryService;
@@ -29,7 +30,7 @@ describe('WebhookDeliveryService', function (): void {
             }
         };
 
-        $service = new WebhookDeliveryService($repository);
+        $service = new WebhookDeliveryService($repository, new FakeClock('2026-01-01 12:00:00'));
 
         $payload = new WebhookPayload(
             url: 'https://example.com/webhook',
@@ -56,7 +57,7 @@ describe('WebhookDeliveryService', function (): void {
             ->and($attempt->responseBody)->toBe('OK')
             ->and($attempt->errorMessage)->toBeNull()
             ->and($attempt->attemptNumber)->toBe(1)
-            ->and($attempt->attemptedAt)->not->toBeNull();
+            ->and($attempt->attemptedAt)->toBe('2026-01-01 12:00:00');
     });
 
     it('records failed delivery attempts with error details', function (): void {
@@ -77,7 +78,7 @@ describe('WebhookDeliveryService', function (): void {
             }
         };
 
-        $service = new WebhookDeliveryService($repository);
+        $service = new WebhookDeliveryService($repository, new FakeClock('2026-01-01 12:00:00'));
 
         $payload = new WebhookPayload(
             url: 'https://example.com/webhook',
@@ -98,6 +99,41 @@ describe('WebhookDeliveryService', function (): void {
             ->and($attempt->responseBody)->toBeNull()
             ->and($attempt->errorMessage)->toBe('Connection timed out')
             ->and($attempt->attemptNumber)->toBe(2)
-            ->and($attempt->attemptedAt)->not->toBeNull();
+            ->and($attempt->attemptedAt)->toBe('2026-01-01 12:00:00');
+    });
+
+    it('records attemptedAt from the clock', function (): void {
+        $savedAttempts = [];
+
+        $repository = new class ($savedAttempts) implements WebhookAttemptRepositoryInterface
+        {
+            public function __construct(
+                private array &$savedAttempts,
+            ) {}
+
+            public function save(
+                WebhookAttempt $attempt,
+            ): WebhookAttempt {
+                $this->savedAttempts[] = $attempt;
+
+                return $attempt;
+            }
+        };
+
+        $clock = new FakeClock('2026-01-01 12:00:00');
+        $service = new WebhookDeliveryService($repository, $clock);
+        $payload = new WebhookPayload(
+            url: 'https://example.com/webhook',
+            event: 'order.created',
+            data: [],
+            secret: 'my-secret',
+        );
+
+        $service->recordFailure($payload, 'first failure', 1);
+        $clock->travel('+90 seconds');
+        $service->recordFailure($payload, 'second failure', 2);
+
+        expect($savedAttempts[0]->attemptedAt)->toBe('2026-01-01 12:00:00')
+            ->and($savedAttempts[1]->attemptedAt)->toBe('2026-01-01 12:01:30');
     });
 });

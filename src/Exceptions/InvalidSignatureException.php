@@ -29,8 +29,9 @@ class InvalidSignatureException extends MarkoException
     public static function staleTimestamp(
         int $timestamp,
         int $tolerance,
+        int $now,
     ): self {
-        $age = abs(time() - $timestamp);
+        $age = abs($now - $timestamp);
 
         return new self(
             message: "Webhook timestamp is outside the freshness window (age: {$age}s, tolerance: {$tolerance}s).",

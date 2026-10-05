@@ -6,13 +6,14 @@ namespace Marko\Webhook\Tests\Sending;
 
 use Marko\Http\Contracts\HttpClientInterface;
 use Marko\Http\HttpResponse;
+use Marko\Testing\Fake\FakeClock;
 use Marko\Webhook\Sending\WebhookDispatcher;
 use Marko\Webhook\Sending\WebhookSignature;
 use Marko\Webhook\Value\WebhookPayload;
 use Marko\Webhook\Value\WebhookResponse;
 
 describe('WebhookDispatcher', function (): void {
-    it('dispatches webhooks synchronously via HTTP client', function (): void {
+    it('signs the payload with the clock timestamp', function (): void {
         $payload = new WebhookPayload(
             url: 'https://example.com/webhook',
             event: 'order.created',
@@ -81,10 +82,9 @@ describe('WebhookDispatcher', function (): void {
             }
         };
 
-        $before = time();
-        $dispatcher = new WebhookDispatcher($httpClient);
+        $clock = new FakeClock('2026-01-01 12:00:00 UTC');
+        $dispatcher = new WebhookDispatcher($httpClient, $clock);
         $response = $dispatcher->dispatch($payload);
-        $after = time();
 
         $capturedTimestamp = (int) ($capturedOptions['headers']['X-Webhook-Timestamp'] ?? 0);
         $expectedSignature = WebhookSignature::sign($jsonBody, $payload->secret, $capturedTimestamp);
@@ -94,8 +94,7 @@ describe('WebhookDispatcher', function (): void {
             ->and($response->body)->toBe('OK')
             ->and($response->successful)->toBeTrue()
             ->and($capturedUrl)->toBe($payload->url)
-            ->and($capturedTimestamp)->toBeGreaterThanOrEqual($before)
-            ->and($capturedTimestamp)->toBeLessThanOrEqual($after)
+            ->and($capturedTimestamp)->toBe($clock->now()->getTimestamp())
             ->and($capturedOptions['headers']['X-Webhook-Signature'])->toBe($expectedSignature)
             ->and($capturedOptions['headers']['Content-Type'])->toBe('application/json')
             ->and($capturedOptions['body'])->toBe($jsonBody);

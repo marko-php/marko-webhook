@@ -16,6 +16,7 @@ use Marko\Queue\JobInterface;
 use Marko\Queue\QueueConfig;
 use Marko\Queue\QueueInterface;
 use Marko\Queue\Worker;
+use Marko\Testing\Fake\FakeClock;
 use Marko\Testing\Fake\FakeConfigRepository;
 use Marko\Testing\Fake\FakeQueue;
 use Marko\Webhook\Contracts\WebhookAttemptRepositoryInterface;
@@ -121,7 +122,7 @@ final class SerializableWebhookJobTestHelpers
             }
         };
 
-        return new WebhookDeliveryService($stubRepo);
+        return new WebhookDeliveryService($stubRepo, new FakeClock());
     }
 
     public static function container(

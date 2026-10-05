@@ -10,6 +10,7 @@ use Marko\Core\Container\ContainerInterface;
 use Marko\Http\Contracts\HttpClientInterface;
 use Marko\Http\HttpResponse;
 use Marko\Queue\QueueInterface;
+use Marko\Testing\Fake\FakeClock;
 use Marko\Testing\Fake\FakeConfigRepository;
 use Marko\Testing\Fake\FakeQueue;
 use Marko\Webhook\Contracts\WebhookAttemptRepositoryInterface;
@@ -97,8 +98,8 @@ describe('DispatchWebhookJob retry', function (): void {
             'webhook.retry_delay' => 60,
         ]);
 
-        $dispatcher = new WebhookDispatcher($httpClient);
-        $deliveryService = new WebhookDeliveryService($attemptRepository);
+        $dispatcher = new WebhookDispatcher($httpClient, new FakeClock());
+        $deliveryService = new WebhookDeliveryService($attemptRepository, new FakeClock());
         $fakeQueue = new FakeQueue();
 
         $container = new readonly class ($dispatcher, $deliveryService, $config, $fakeQueue) implements ContainerInterface
@@ -235,8 +236,8 @@ describe('DispatchWebhookJob retry', function (): void {
             'webhook.retry_delay' => 60,
         ]);
 
-        $dispatcher = new WebhookDispatcher($httpClient);
-        $deliveryService = new WebhookDeliveryService($attemptRepository);
+        $dispatcher = new WebhookDispatcher($httpClient, new FakeClock());
+        $deliveryService = new WebhookDeliveryService($attemptRepository, new FakeClock());
         $fakeQueue = new FakeQueue();
 
         $container = new readonly class ($dispatcher, $deliveryService, $config, $fakeQueue) implements ContainerInterface

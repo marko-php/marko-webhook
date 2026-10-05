@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Marko\Webhook\Tests\Receiving;
 
 use Marko\Routing\Http\Request;
+use Marko\Testing\Fake\FakeClock;
 use Marko\Testing\Fake\FakeConfigRepository;
 use Marko\Webhook\Config\WebhookConfig;
 use Marko\Webhook\Exceptions\InvalidSignatureException;
@@ -20,13 +21,20 @@ function makeWebhookReceiver(): WebhookReceiver
         'webhook.timestamp_tolerance' => 300,
     ]));
 
-    return new WebhookReceiver(new WebhookVerifier(), $config);
+    $clock = new FakeClock('@' . webhookReceiverNow());
+
+    return new WebhookReceiver(new WebhookVerifier($clock), $config, $clock);
+}
+
+function webhookReceiverNow(): int
+{
+    return 1767268800;
 }
 
 describe('WebhookReceiver', function (): void {
     it('throws InvalidSignatureException for failed signature verification', function (): void {
         $receiver = makeWebhookReceiver();
-        $timestamp = (string) time();
+        $timestamp = (string) webhookReceiverNow();
         $request = new Request(
             server: [
                 'HTTP_X_WEBHOOK_SIGNATURE' => 'sha256=invalidsignature',
@@ -42,7 +50,7 @@ describe('WebhookReceiver', function (): void {
         $secret = 'my-secret';
         $data = ['event' => 'order.created', 'data' => ['order_id' => 123]];
         $body = json_encode($data);
-        $timestamp = time();
+        $timestamp = webhookReceiverNow();
         $signature = 'sha256=' . hash_hmac('sha256', "$timestamp.$body", $secret);
 
         $receiver = makeWebhookReceiver();

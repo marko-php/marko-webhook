@@ -4,8 +4,14 @@ declare(strict_types=1);
 
 namespace Marko\Webhook\Receiving;
 
+use Psr\Clock\ClockInterface;
+
 class WebhookVerifier
 {
+    public function __construct(
+        private readonly ClockInterface $clock,
+    ) {}
+
     public function verify(
         string $body,
         string $timestamp,
@@ -13,7 +19,7 @@ class WebhookVerifier
         string $secret,
         int $tolerance,
     ): bool {
-        if (abs(time() - (int) $timestamp) > $tolerance) {
+        if (abs($this->clock->now()->getTimestamp() - (int) $timestamp) > $tolerance) {
             return false;
         }
 
