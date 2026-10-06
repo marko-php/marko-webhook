@@ -174,7 +174,163 @@ final class SerializableWebhookJobTestHelpers
             }
         };
     }
+
+    /**
+     * A container that cannot be serialized (anonymous class) and resolves nothing.
+     */
+    public static function unserializableFailingContainer(): ContainerInterface
+    {
+        return new class () implements ContainerInterface
+        {
+            public function get(string $id): never
+            {
+                throw new RuntimeException("Webhook dispatcher unavailable: $id");
+            }
+
+            public function has(string $id): bool
+            {
+                return false;
+            }
+
+            public function singleton(string $id): void {}
+
+            public function instance(
+                string $id,
+                object $instance,
+            ): void {}
+
+            public function call(Closure $callable): mixed
+            {
+                return null;
+            }
+
+            public function resolvedInstances(?string $interface = null): array
+            {
+                return [];
+            }
+        };
+    }
+
+    /**
+     * Pops the given jobs in order and records which job IDs the worker deleted.
+     *
+     * @param list<JobInterface> $jobs
+     */
+    public static function sequenceQueue(array $jobs): QueueInterface
+    {
+        return new class ($jobs) implements QueueInterface
+        {
+            /** @var list<string> */
+            public array $deleted = [];
+
+            /**
+             * @param list<JobInterface> $jobs
+             */
+            public function __construct(
+                private array $jobs,
+            ) {}
+
+            public function push(
+                JobInterface $job,
+                ?string $queue = null,
+            ): string {
+                return 'unused';
+            }
+
+            public function later(
+                int $delay,
+                JobInterface $job,
+                ?string $queue = null,
+            ): string {
+                return 'unused';
+            }
+
+            public function pop(?string $queue = null): ?JobInterface
+            {
+                return array_shift($this->jobs);
+            }
+
+            public function size(?string $queue = null): int
+            {
+                return count($this->jobs);
+            }
+
+            public function clear(?string $queue = null): int
+            {
+                return 0;
+            }
+
+            public function delete(string $jobId): bool
+            {
+                $this->deleted[] = $jobId;
+
+                return true;
+            }
+
+            public function release(
+                string $jobId,
+                int $delay = 0,
+            ): bool {
+                return true;
+            }
+        };
+    }
 }
+
+describe('DispatchWebhookJob final failure', function (): void {
+    it(
+        'stores a DispatchWebhookJob that fails for the last time in the failed-job repository and keeps the worker running',
+        function (): void {
+            $job = new DispatchWebhookJob(SerializableWebhookJobTestHelpers::payload());
+            $job->setId('webhook-final-failure');
+            // queue.max_attempts is 3: this run is the job's last attempt
+            $job->incrementAttempts();
+            $job->incrementAttempts();
+
+            $stopJob = new class () extends Job
+            {
+                public ?Worker $worker = null;
+
+                public function handle(): void
+                {
+                    $this->worker?->stop();
+                }
+            };
+            $stopJob->setId('stop-worker');
+
+            $queue = SerializableWebhookJobTestHelpers::sequenceQueue([$job, $stopJob]);
+            $failedRepository = SerializableWebhookJobTestHelpers::failedJobRepository();
+
+            $worker = new Worker(
+                $queue,
+                $failedRepository,
+                SerializableWebhookJobTestHelpers::queueConfig(),
+                SerializableWebhookJobTestHelpers::envelope(),
+                SerializableWebhookJobTestHelpers::unserializableFailingContainer(),
+            );
+            $stopJob->worker = $worker;
+
+            $worker->work();
+
+            $failedJob = $failedRepository->find('webhook-final-failure');
+            $envelope = SerializableWebhookJobTestHelpers::envelope();
+            $stored = Job::unserialize($envelope->verifyAndUnwrap($failedJob->payload));
+
+            expect($failedJob->exception)->toContain('Webhook dispatcher unavailable')
+                ->and($stored)->toBeInstanceOf(DispatchWebhookJob::class)
+                ->and($queue->deleted)->toBe(['webhook-final-failure', 'stop-worker']);
+        },
+    );
+
+    it('releases the container from DispatchWebhookJob when releaseContainer is called', function (): void {
+        $job = new DispatchWebhookJob(SerializableWebhookJobTestHelpers::payload());
+        $job->setContainer(SerializableWebhookJobTestHelpers::unserializableFailingContainer());
+
+        $job->releaseContainer();
+
+        expect(fn () => $job->handle())->toThrow(RuntimeException::class, 'without a container');
+    });
+});
 
 describe('DispatchWebhookJob serialization', function (): void {
     it('serializes and unserializes a DispatchWebhookJob without error', function (): void {
