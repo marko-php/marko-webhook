@@ -32,7 +32,7 @@ describe('DispatchWebhookJob', function (): void {
             url: 'https://example.com/webhook',
             event: 'order.created',
             data: ['order_id' => 123],
-            secret: 'my-secret',
+            secret: 'my-signing-secret',
         );
 
         $httpClient = new class () implements HttpClientInterface

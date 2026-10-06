@@ -136,7 +136,7 @@ function webhookJob(
             url: $url,
             event: 'order.created',
             data: ['order_id' => 123],
-            secret: 'my-secret',
+            secret: 'my-signing-secret',
         ),
         $attemptNumber,
     );

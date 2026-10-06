@@ -9,7 +9,7 @@ use Marko\Webhook\Sending\WebhookSignature;
 describe('WebhookSignature', function (): void {
     it('signs payloads with HMAC-SHA256 via WebhookSignature utility', function (): void {
         $payload = '{"event":"order.created","data":{"order_id":123}}';
-        $secret = 'my-secret';
+        $secret = 'my-signing-secret';
         $timestamp = time();
 
         $signature = WebhookSignature::sign($payload, $secret, $timestamp);

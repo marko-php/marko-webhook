@@ -25,7 +25,7 @@ describe('WebhookDispatcher', function (): void {
             url: 'https://example.com/webhook',
             event: 'order.created',
             data: ['order_id' => 123],
-            secret: 'my-secret',
+            secret: 'my-signing-secret',
         );
 
         $jsonBody = json_encode(['event' => $payload->event, 'data' => $payload->data]);
@@ -219,7 +219,7 @@ function webhookDispatcherPayload(
         url: $url,
         event: 'order.created',
         data: ['order_id' => 123],
-        secret: 'my-secret',
+        secret: 'my-signing-secret',
     );
 }
 

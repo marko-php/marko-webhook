@@ -31,7 +31,7 @@ describe('DispatchWebhookJob retry', function (): void {
             url: 'https://example.com/webhook',
             event: 'order.created',
             data: ['order_id' => 123],
-            secret: 'my-secret',
+            secret: 'my-signing-secret',
         );
 
         $httpClient = new class () implements HttpClientInterface
@@ -187,7 +187,7 @@ describe('DispatchWebhookJob retry', function (): void {
             url: 'https://example.com/webhook',
             event: 'order.created',
             data: ['order_id' => 123],
-            secret: 'my-secret',
+            secret: 'my-signing-secret',
         );
 
         $httpClient = new class () implements HttpClientInterface

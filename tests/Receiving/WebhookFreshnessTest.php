@@ -52,7 +52,7 @@ function makeReceiverWithTolerance(
 
 describe('WebhookReceiver freshness window', function (): void {
     it('accepts a freshly-signed request whose timestamp is within the tolerance window', function (): void {
-        $secret = 'my-secret';
+        $secret = 'my-signing-secret';
         $body = '{"event":"order.created"}';
         $timestamp = freshnessNow();
 
@@ -65,7 +65,7 @@ describe('WebhookReceiver freshness window', function (): void {
     });
 
     it('rejects a request whose timestamp is older than the tolerance window', function (): void {
-        $secret = 'my-secret';
+        $secret = 'my-signing-secret';
         $body = '{"event":"order.created"}';
         $timestamp = freshnessNow() - 301;
 
@@ -77,7 +77,7 @@ describe('WebhookReceiver freshness window', function (): void {
     });
 
     it('rejects a request whose timestamp is in the future beyond the tolerance window', function (): void {
-        $secret = 'my-secret';
+        $secret = 'my-signing-secret';
         $body = '{"event":"order.created"}';
         $timestamp = freshnessNow() + 301;
 
@@ -89,7 +89,7 @@ describe('WebhookReceiver freshness window', function (): void {
     });
 
     it('rejects a request when the timestamp header is missing', function (): void {
-        $secret = 'my-secret';
+        $secret = 'my-signing-secret';
         $body = '{"event":"order.created"}';
         $timestamp = freshnessNow();
 
@@ -101,7 +101,7 @@ describe('WebhookReceiver freshness window', function (): void {
     });
 
     it('accepts a request whose timestamp is exactly at the tolerance boundary', function (): void {
-        $secret = 'my-secret';
+        $secret = 'my-signing-secret';
         $body = '{"event":"order.created"}';
         $timestamp = freshnessNow() - 300;
 
@@ -116,7 +116,7 @@ describe('WebhookReceiver freshness window', function (): void {
     it(
         'rejects a request when the timestamp is tampered with but the body signature was computed for a different timestamp',
         function (): void {
-            $secret = 'my-secret';
+            $secret = 'my-signing-secret';
             $body = '{"event":"order.created"}';
             $realTimestamp = freshnessNow();
             $tamperedTimestamp = freshnessNow() - 100;
@@ -142,7 +142,7 @@ describe('WebhookReceiver freshness window', function (): void {
     it(
         'reads the tolerance from WebhookConfig (timestamp_tolerance) rather than a hardcoded value',
         function (): void {
-            $secret = 'my-secret';
+            $secret = 'my-signing-secret';
             $body = '{"event":"order.created"}';
             // Use a very tight tolerance of 1 second; a 2-second-old timestamp should be rejected
             $timestamp = freshnessNow() - 2;
@@ -164,7 +164,7 @@ describe('WebhookReceiver freshness window', function (): void {
     );
 
     it('round-trips a payload signed by WebhookSignature through WebhookReceiver successfully', function (): void {
-        $secret = 'my-secret';
+        $secret = 'my-signing-secret';
         $body = '{"event":"order.created","data":{"order_id":123}}';
         $timestamp = freshnessNow();
 
@@ -187,7 +187,7 @@ describe('WebhookReceiver freshness window', function (): void {
     it(
         'keeps the existing WebhookReceiver JSON-parsing behavior for a valid signed-and-timestamped request',
         function (): void {
-            $secret = 'my-secret';
+            $secret = 'my-signing-secret';
             $data = ['event' => 'payment.confirmed', 'data' => ['amount' => 9999]];
             $body = json_encode($data);
             $timestamp = freshnessNow();
@@ -210,7 +210,7 @@ describe('WebhookReceiver freshness window', function (): void {
     );
 
     it('rejects a request once the clock moves past the tolerance window', function (): void {
-        $secret = 'my-secret';
+        $secret = 'my-signing-secret';
         $body = '{"event":"order.created"}';
         $clock = new FakeClock('@' . freshnessNow());
         $receiver = makeReceiverWithTolerance(300, $clock);
@@ -225,7 +225,7 @@ describe('WebhookReceiver freshness window', function (): void {
     });
 
     it('reports the age from the clock in the stale timestamp message', function (): void {
-        $secret = 'my-secret';
+        $secret = 'my-signing-secret';
         $body = '{"event":"order.created"}';
         $receiver = makeReceiverWithTolerance(300);
         $request = makeFreshRequest($secret, $body, freshnessNow() - 400);
