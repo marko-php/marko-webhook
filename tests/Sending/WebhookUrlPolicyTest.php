@@ -17,10 +17,18 @@ describe('WebhookUrlPolicy', function (): void {
         );
         $policy = new WebhookUrlPolicy(new FakeConfigRepository(['webhook.allow_http' => false]), $resolver);
 
-        $policy->validate('https://hooks.example.com/webhook');
+        $address = $policy->validate('https://hooks.example.com/webhook');
 
-        expect($resolver->lookups)->toBe(['hooks.example.com']);
+        expect($resolver->lookups)->toBe(['hooks.example.com'])
+            ->and($address)->toBe('93.184.215.14');
     });
+
+    it('returns the address of an IP-literal host', function (string $url, string $address): void {
+        expect(FakeHostResolver::policy()->validate($url))->toBe($address);
+    })->with([
+        'ipv4' => ['https://93.184.215.14/webhook', '93.184.215.14'],
+        'ipv6' => ['https://[2606:2800:21f:cb07:6820:80da:af6b:8b2c]/webhook', '2606:2800:21f:cb07:6820:80da:af6b:8b2c'],
+    ]);
 
     it('rejects the cloud metadata address', function (): void {
         expect(fn () => FakeHostResolver::policy()->validate('https://169.254.169.254/latest/meta-data/iam/'))

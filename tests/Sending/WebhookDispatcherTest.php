@@ -16,7 +16,10 @@ use Marko\Webhook\Exceptions\InvalidWebhookPayloadException;
 use Marko\Webhook\Exceptions\UnsafeWebhookUrlException;
 use Marko\Webhook\Sending\WebhookDispatcher;
 use Marko\Webhook\Sending\WebhookSignature;
+use Marko\Webhook\Sending\WebhookUrlPolicy;
 use Marko\Webhook\Tests\Fixtures\FakeHostResolver;
+use Marko\Webhook\Tests\Fixtures\RebindingHostResolver;
+use Marko\Webhook\Tests\Fixtures\ResolvingHttpClient;
 use Marko\Webhook\Value\WebhookPayload;
 use Marko\Webhook\Value\WebhookResponse;
 
@@ -192,6 +195,43 @@ describe('WebhookDispatcher', function (): void {
         $dispatcher->dispatch(webhookDispatcherPayload());
 
         expect($httpClient->requests[0]->options[RequestOptions::ALLOW_REDIRECTS])->toBeFalse();
+    });
+
+    it('pins the connection to the address the URL policy validated', function (): void {
+        $httpClient = new FakeHttpClient()->stub('https://example.com/webhook', new HttpResponse(200, 'OK'));
+
+        $dispatcher = new WebhookDispatcher(
+            $httpClient,
+            new FakeClock(),
+            webhookDispatcherConfig(),
+            FakeHostResolver::policy(['example.com' => ['93.184.215.14', '93.184.215.15']]),
+        );
+        $dispatcher->dispatch(webhookDispatcherPayload());
+
+        expect($httpClient->requests[0]->options[RequestOptions::RESOLVE_TO])->toBe('93.184.215.14');
+    });
+
+    it('cannot be steered to an internal address by DNS that flips after the policy check', function (): void {
+        $resolver = new RebindingHostResolver([['93.184.215.14'], ['169.254.169.254']]);
+        $httpClient = new ResolvingHttpClient($resolver);
+        $policy = new WebhookUrlPolicy(new FakeConfigRepository(['webhook.allow_http' => false]), $resolver);
+
+        $dispatcher = new WebhookDispatcher($httpClient, new FakeClock(), webhookDispatcherConfig(), $policy);
+        $dispatcher->dispatch(webhookDispatcherPayload('https://rebind.attacker.test/hook'));
+
+        expect($httpClient->connectedTo)->toBe(['93.184.215.14'])
+            ->and($resolver->lookups)->toBe(['rebind.attacker.test']);
+    });
+
+    it('would reach the internal address if the HTTP client resolved the host again', function (): void {
+        $resolver = new RebindingHostResolver([['93.184.215.14'], ['169.254.169.254']]);
+        $httpClient = new ResolvingHttpClient($resolver);
+        $policy = new WebhookUrlPolicy(new FakeConfigRepository(['webhook.allow_http' => false]), $resolver);
+
+        $policy->validate('https://rebind.attacker.test/hook');
+        $httpClient->post('https://rebind.attacker.test/hook');
+
+        expect($httpClient->connectedTo)->toBe(['169.254.169.254']);
     });
 
     it('refuses to send to a URL the policy rejects, before any request is made', function (

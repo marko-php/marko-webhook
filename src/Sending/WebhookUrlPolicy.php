@@ -64,11 +64,13 @@ readonly class WebhookUrlPolicy implements WebhookUrlPolicyInterface
     }
 
     /**
+     * Returns the first address the host resolved to; every address was checked, so any of them is safe to pin.
+     *
      * @throws UnsafeWebhookUrlException
      */
     public function validate(
         string $url,
-    ): void {
+    ): string {
         // Backslashes and whitespace are where URL parsers disagree, so parse_url() could see a
         // different host than the HTTP client. Such URLs are rejected rather than interpreted.
         $parts = preg_match('/[\\\\\s]/', $url) === 1 ? false : parse_url($url);
@@ -112,6 +114,8 @@ readonly class WebhookUrlPolicy implements WebhookUrlPolicyInterface
                 throw UnsafeWebhookUrlException::disallowedAddress($url, $host, $address, $range);
             }
         }
+
+        return $addresses[0];
     }
 
     /**
