@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Marko\Webhook\Sending;
 
+use Marko\Database\Config\DatabaseTimezoneConfig;
 use Marko\Http\HttpResponse;
 use Marko\Webhook\Contracts\WebhookAttemptRepositoryInterface;
 use Marko\Webhook\Entity\WebhookAttempt;
@@ -11,11 +12,16 @@ use Marko\Webhook\Value\WebhookPayload;
 use Marko\Webhook\Value\WebhookResponse;
 use Psr\Clock\ClockInterface;
 
+/**
+ * Records webhook delivery attempts. attemptedAt is written in the database
+ * timezone (`database.timezone`, UTC by default).
+ */
 readonly class WebhookDeliveryService
 {
     public function __construct(
         private WebhookAttemptRepositoryInterface $repository,
         private ClockInterface $clock,
+        private DatabaseTimezoneConfig $databaseTimezoneConfig,
     ) {}
 
     public function recordSuccess(
@@ -31,7 +37,7 @@ readonly class WebhookDeliveryService
 
         $webhookAttempt->statusCode = $response->statusCode;
         $webhookAttempt->responseBody = $response->body;
-        $webhookAttempt->attemptedAt = $this->clock->now()->format('Y-m-d H:i:s');
+        $webhookAttempt->attemptedAt = $this->databaseTimezoneConfig->format($this->clock->now());
 
         $this->repository->save($webhookAttempt);
     }
@@ -54,7 +60,7 @@ readonly class WebhookDeliveryService
         $webhookAttempt->statusCode = $response->statusCode;
         $webhookAttempt->responseBody = new HttpResponse($response->statusCode, $response->body)->bodyExcerpt();
         $webhookAttempt->errorMessage = "Webhook receiver responded with HTTP $response->statusCode.";
-        $webhookAttempt->attemptedAt = $this->clock->now()->format('Y-m-d H:i:s');
+        $webhookAttempt->attemptedAt = $this->databaseTimezoneConfig->format($this->clock->now());
 
         $this->repository->save($webhookAttempt);
     }
@@ -71,7 +77,7 @@ readonly class WebhookDeliveryService
         );
 
         $webhookAttempt->errorMessage = $error;
-        $webhookAttempt->attemptedAt = $this->clock->now()->format('Y-m-d H:i:s');
+        $webhookAttempt->attemptedAt = $this->databaseTimezoneConfig->format($this->clock->now());
 
         $this->repository->save($webhookAttempt);
     }

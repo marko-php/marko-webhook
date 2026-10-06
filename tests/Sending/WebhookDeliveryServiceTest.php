@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace Marko\Webhook\Tests\Sending;
 
+use DateTimeImmutable;
+use DateTimeZone;
+use Marko\Database\Config\DatabaseTimezoneConfig;
 use Marko\Testing\Fake\FakeClock;
 use Marko\Webhook\Contracts\WebhookAttemptRepositoryInterface;
 use Marko\Webhook\Entity\WebhookAttempt;
@@ -12,7 +15,7 @@ use Marko\Webhook\Value\WebhookPayload;
 use Marko\Webhook\Value\WebhookResponse;
 
 describe('WebhookDeliveryService', function (): void {
-    it('records successful delivery attempts with status code and response', function (): void {
+    it('records a successful attempt with its time in the database timezone', function (): void {
         $savedAttempts = [];
 
         $repository = new class ($savedAttempts) implements WebhookAttemptRepositoryInterface
@@ -30,7 +33,11 @@ describe('WebhookDeliveryService', function (): void {
             }
         };
 
-        $service = new WebhookDeliveryService($repository, new FakeClock('2026-01-01 12:00:00'));
+        $service = new WebhookDeliveryService(
+            $repository,
+            new FakeClock(new DateTimeImmutable('2026-01-01 07:00:00', new DateTimeZone('America/New_York'))),
+            DatabaseTimezoneConfig::fromName('UTC'),
+        );
 
         $payload = new WebhookPayload(
             url: 'https://example.com/webhook',
@@ -60,7 +67,7 @@ describe('WebhookDeliveryService', function (): void {
             ->and($attempt->attemptedAt)->toBe('2026-01-01 12:00:00');
     });
 
-    it('records failed delivery attempts with error details', function (): void {
+    it('records a failed attempt with its time in the database timezone', function (): void {
         $savedAttempts = [];
 
         $repository = new class ($savedAttempts) implements WebhookAttemptRepositoryInterface
@@ -78,7 +85,11 @@ describe('WebhookDeliveryService', function (): void {
             }
         };
 
-        $service = new WebhookDeliveryService($repository, new FakeClock('2026-01-01 12:00:00'));
+        $service = new WebhookDeliveryService(
+            $repository,
+            new FakeClock(new DateTimeImmutable('2026-01-01 07:00:00', new DateTimeZone('America/New_York'))),
+            DatabaseTimezoneConfig::fromName('UTC'),
+        );
 
         $payload = new WebhookPayload(
             url: 'https://example.com/webhook',
@@ -121,7 +132,7 @@ describe('WebhookDeliveryService', function (): void {
         };
 
         $clock = new FakeClock('2026-01-01 12:00:00');
-        $service = new WebhookDeliveryService($repository, $clock);
+        $service = new WebhookDeliveryService($repository, $clock, DatabaseTimezoneConfig::fromName('UTC'));
         $payload = new WebhookPayload(
             url: 'https://example.com/webhook',
             event: 'order.created',
@@ -137,7 +148,7 @@ describe('WebhookDeliveryService', function (): void {
             ->and($savedAttempts[1]->attemptedAt)->toBe('2026-01-01 12:01:30');
     });
 
-    it('records the status and capped body of a rejected delivery', function (): void {
+    it('records a rejected attempt with its time in the database timezone', function (): void {
         $savedAttempts = [];
 
         $repository = new class ($savedAttempts) implements WebhookAttemptRepositoryInterface
@@ -155,7 +166,11 @@ describe('WebhookDeliveryService', function (): void {
             }
         };
 
-        $service = new WebhookDeliveryService($repository, new FakeClock('2026-01-01 12:00:00'));
+        $service = new WebhookDeliveryService(
+            $repository,
+            new FakeClock(new DateTimeImmutable('2026-01-01 07:00:00', new DateTimeZone('America/New_York'))),
+            DatabaseTimezoneConfig::fromName('UTC'),
+        );
 
         $payload = new WebhookPayload(
             url: 'https://example.com/webhook',

@@ -7,6 +7,7 @@ namespace Marko\Webhook\Tests\Jobs;
 use Closure;
 use Marko\Config\ConfigRepositoryInterface;
 use Marko\Core\Container\ContainerInterface;
+use Marko\Database\Config\DatabaseTimezoneConfig;
 use Marko\Encryption\Config\EncryptionConfig;
 use Marko\Queue\FailedJob;
 use Marko\Queue\FailedJobRepositoryInterface;
@@ -70,8 +71,9 @@ final class SerializableWebhookJobTestHelpers
             /** @var array<string, FailedJob> */
             public array $storedJobs = [];
 
-            public function store(FailedJob $failedJob): void
-            {
+            public function store(
+                FailedJob $failedJob,
+            ): void {
                 $this->storedJobs[$failedJob->id] = $failedJob;
             }
 
@@ -81,13 +83,15 @@ final class SerializableWebhookJobTestHelpers
                 return array_values($this->storedJobs);
             }
 
-            public function find(string $id): ?FailedJob
-            {
+            public function find(
+                string $id,
+            ): ?FailedJob {
                 return $this->storedJobs[$id] ?? null;
             }
 
-            public function delete(string $id): bool
-            {
+            public function delete(
+                string $id,
+            ): bool {
                 if (isset($this->storedJobs[$id])) {
                     unset($this->storedJobs[$id]);
 
@@ -116,13 +120,14 @@ final class SerializableWebhookJobTestHelpers
     {
         $stubRepo = new class () implements WebhookAttemptRepositoryInterface
         {
-            public function save(WebhookAttempt $attempt): WebhookAttempt
-            {
+            public function save(
+                WebhookAttempt $attempt,
+            ): WebhookAttempt {
                 return $attempt;
             }
         };
 
-        return new WebhookDeliveryService($stubRepo, new FakeClock());
+        return new WebhookDeliveryService($stubRepo, new FakeClock(), DatabaseTimezoneConfig::fromName('UTC'));
     }
 
     public static function container(
@@ -140,8 +145,9 @@ final class SerializableWebhookJobTestHelpers
                 private QueueInterface $queue,
             ) {}
 
-            public function get(string $id): object
-            {
+            public function get(
+                string $id,
+            ): object {
                 return match ($id) {
                     WebhookDispatcherInterface::class => $this->dispatcher,
                     WebhookDeliveryService::class => $this->deliveryService,
@@ -151,8 +157,9 @@ final class SerializableWebhookJobTestHelpers
                 };
             }
 
-            public function has(string $id): bool
-            {
+            public function has(
+                string $id,
+            ): bool {
                 return true;
             }
 
@@ -163,13 +170,15 @@ final class SerializableWebhookJobTestHelpers
                 object $instance,
             ): void {}
 
-            public function call(Closure $callable): mixed
-            {
+            public function call(
+                Closure $callable,
+            ): mixed {
                 return null;
             }
 
-            public function resolvedInstances(?string $interface = null): array
-            {
+            public function resolvedInstances(
+                ?string $interface = null,
+            ): array {
                 return [];
             }
         };
@@ -182,13 +191,15 @@ final class SerializableWebhookJobTestHelpers
     {
         return new class () implements ContainerInterface
         {
-            public function get(string $id): never
-            {
+            public function get(
+                string $id,
+            ): never {
                 throw new RuntimeException("Webhook dispatcher unavailable: $id");
             }
 
-            public function has(string $id): bool
-            {
+            public function has(
+                string $id,
+            ): bool {
                 return false;
             }
 
@@ -199,13 +210,15 @@ final class SerializableWebhookJobTestHelpers
                 object $instance,
             ): void {}
 
-            public function call(Closure $callable): mixed
-            {
+            public function call(
+                Closure $callable,
+            ): mixed {
                 return null;
             }
 
-            public function resolvedInstances(?string $interface = null): array
-            {
+            public function resolvedInstances(
+                ?string $interface = null,
+            ): array {
                 return [];
             }
         };
@@ -216,8 +229,9 @@ final class SerializableWebhookJobTestHelpers
      *
      * @param list<JobInterface> $jobs
      */
-    public static function sequenceQueue(array $jobs): QueueInterface
-    {
+    public static function sequenceQueue(
+        array $jobs,
+    ): QueueInterface {
         return new class ($jobs) implements QueueInterface
         {
             /** @var list<string> */
@@ -245,23 +259,27 @@ final class SerializableWebhookJobTestHelpers
                 return 'unused';
             }
 
-            public function pop(?string $queue = null): ?JobInterface
-            {
+            public function pop(
+                ?string $queue = null,
+            ): ?JobInterface {
                 return array_shift($this->jobs);
             }
 
-            public function size(?string $queue = null): int
-            {
+            public function size(
+                ?string $queue = null,
+            ): int {
                 return count($this->jobs);
             }
 
-            public function clear(?string $queue = null): int
-            {
+            public function clear(
+                ?string $queue = null,
+            ): int {
                 return 0;
             }
 
-            public function delete(string $jobId): bool
-            {
+            public function delete(
+                string $jobId,
+            ): bool {
                 $this->deleted[] = $jobId;
 
                 return true;
@@ -361,8 +379,9 @@ describe('DispatchWebhookJob serialization', function (): void {
                 private array &$dispatched,
             ) {}
 
-            public function dispatch(WebhookPayload $payload): WebhookResponse
-            {
+            public function dispatch(
+                WebhookPayload $payload,
+            ): WebhookResponse {
                 $this->dispatched[] = $payload;
 
                 return new WebhookResponse(200, 'OK', true);
@@ -395,8 +414,9 @@ describe('DispatchWebhookJob serialization', function (): void {
 
         $dispatcher = new class () implements WebhookDispatcherInterface
         {
-            public function dispatch(WebhookPayload $payload): WebhookResponse
-            {
+            public function dispatch(
+                WebhookPayload $payload,
+            ): WebhookResponse {
                 throw new RuntimeException('Connection failed');
             }
         };
@@ -452,8 +472,9 @@ describe('DispatchWebhookJob serialization', function (): void {
                     private array &$dispatched,
                 ) {}
 
-                public function dispatch(WebhookPayload $payload): WebhookResponse
-                {
+                public function dispatch(
+                    WebhookPayload $payload,
+                ): WebhookResponse {
                     $this->dispatched[] = $payload;
 
                     return new WebhookResponse(200, 'OK', true);
@@ -485,8 +506,9 @@ describe('DispatchWebhookJob serialization', function (): void {
                     return 'webhook-job-1';
                 }
 
-                public function pop(?string $queue = null): ?JobInterface
-                {
+                public function pop(
+                    ?string $queue = null,
+                ): ?JobInterface {
                     if ($this->popped) {
                         return null;
                     }
@@ -495,18 +517,21 @@ describe('DispatchWebhookJob serialization', function (): void {
                     return $this->job;
                 }
 
-                public function size(?string $queue = null): int
-                {
+                public function size(
+                    ?string $queue = null,
+                ): int {
                     return 0;
                 }
 
-                public function clear(?string $queue = null): int
-                {
+                public function clear(
+                    ?string $queue = null,
+                ): int {
                     return 0;
                 }
 
-                public function delete(string $jobId): bool
-                {
+                public function delete(
+                    string $jobId,
+                ): bool {
                     return true;
                 }
 
@@ -553,8 +578,9 @@ describe('DispatchWebhookJob serialization', function (): void {
 
         $dispatcher = new class () implements WebhookDispatcherInterface
         {
-            public function dispatch(WebhookPayload $payload): WebhookResponse
-            {
+            public function dispatch(
+                WebhookPayload $payload,
+            ): WebhookResponse {
                 throw new RuntimeException('Simulated failure');
             }
         };
@@ -584,8 +610,9 @@ describe('DispatchWebhookJob serialization', function (): void {
                 return 'webhook-retry-job-1';
             }
 
-            public function pop(?string $queue = null): ?JobInterface
-            {
+            public function pop(
+                ?string $queue = null,
+            ): ?JobInterface {
                 if ($this->popped) {
                     return null;
                 }
@@ -594,18 +621,21 @@ describe('DispatchWebhookJob serialization', function (): void {
                 return $this->job;
             }
 
-            public function size(?string $queue = null): int
-            {
+            public function size(
+                ?string $queue = null,
+            ): int {
                 return 0;
             }
 
-            public function clear(?string $queue = null): int
-            {
+            public function clear(
+                ?string $queue = null,
+            ): int {
                 return 0;
             }
 
-            public function delete(string $jobId): bool
-            {
+            public function delete(
+                string $jobId,
+            ): bool {
                 return true;
             }
 

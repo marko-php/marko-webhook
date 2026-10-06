@@ -7,6 +7,7 @@ namespace Marko\Webhook\Tests\Jobs;
 use Closure;
 use Marko\Config\ConfigRepositoryInterface;
 use Marko\Core\Container\ContainerInterface;
+use Marko\Database\Config\DatabaseTimezoneConfig;
 use Marko\Http\Exceptions\ConnectionException;
 use Marko\Http\HttpResponse;
 use Marko\Queue\QueueInterface;
@@ -66,7 +67,11 @@ function webhookJob(
 
     $services = [
         WebhookDispatcherInterface::class => new WebhookDispatcher($httpClient, new FakeClock()),
-        WebhookDeliveryService::class => new WebhookDeliveryService($repository, new FakeClock()),
+        WebhookDeliveryService::class => new WebhookDeliveryService(
+            $repository,
+            new FakeClock(),
+            DatabaseTimezoneConfig::fromName('UTC'),
+        ),
         ConfigRepositoryInterface::class => new FakeConfigRepository($config),
         QueueInterface::class => $queue,
     ];
@@ -80,13 +85,15 @@ function webhookJob(
             private array $services,
         ) {}
 
-        public function get(string $id): object
-        {
+        public function get(
+            string $id,
+        ): object {
             return $this->services[$id] ?? throw new RuntimeException("No binding for: $id");
         }
 
-        public function has(string $id): bool
-        {
+        public function has(
+            string $id,
+        ): bool {
             return isset($this->services[$id]);
         }
 
@@ -97,13 +104,15 @@ function webhookJob(
             object $instance,
         ): void {}
 
-        public function call(Closure $callable): mixed
-        {
+        public function call(
+            Closure $callable,
+        ): mixed {
             return null;
         }
 
-        public function resolvedInstances(?string $interface = null): array
-        {
+        public function resolvedInstances(
+            ?string $interface = null,
+        ): array {
             return [];
         }
     };
