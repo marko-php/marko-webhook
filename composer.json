@@ -11,10 +11,16 @@
         "marko/routing": "self.version",
         "marko/http": "self.version",
         "marko/queue": "self.version",
-        "marko/config": "self.version"
+        "marko/config": "self.version",
+        "marko/encryption": "self.version"
+    },
+    "suggest": {
+        "marko/cache": "Required for webhook.replay_protection (rejects a webhook delivery ID that was already received)",
+        "marko/encryption-openssl": "Encryption driver required to queue webhooks with WebhookQueue (the signing secret is stored encrypted)"
     },
     "require-dev": {
         "pestphp/pest": "^4.0",
+        "marko/cache": "self.version",
         "marko/testing": "self.version"
     },
     "autoload": {

@@ -15,6 +15,8 @@ class WebhookVerifier
     ) {}
 
     /**
+     * Check the signature over "{webhookId}.{timestamp}.{body}" and that the timestamp is within $tolerance seconds.
+     *
      * @throws InvalidWebhookSecretException
      */
     public function verify(
@@ -23,6 +25,7 @@ class WebhookVerifier
         string $signature,
         string $secret,
         int $tolerance,
+        string $webhookId,
     ): bool {
         WebhookSecret::assertValid($secret);
 
@@ -30,7 +33,7 @@ class WebhookVerifier
             return false;
         }
 
-        $expected = 'sha256=' . hash_hmac('sha256', "$timestamp.$body", $secret);
+        $expected = 'sha256=' . hash_hmac('sha256', "$webhookId.$timestamp.$body", $secret);
 
         return hash_equals($expected, $signature);
     }

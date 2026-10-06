@@ -26,6 +26,25 @@ class InvalidSignatureException extends MarkoException
         );
     }
 
+    public static function missingWebhookId(): self
+    {
+        return new self(
+            message: 'Webhook request is missing the X-Webhook-Id header.',
+            context: 'While verifying the incoming webhook request. The delivery ID is part of the signed message and identifies retries of the same delivery.',
+            suggestion: 'Ensure the sender includes the X-Webhook-Id header and signs "{id}.{timestamp}.{body}". Marko senders do this since the X-Webhook-Id header was introduced.',
+        );
+    }
+
+    public static function replayed(
+        string $webhookId,
+    ): self {
+        return new self(
+            message: "Webhook delivery \"$webhookId\" was already received.",
+            context: 'While checking the X-Webhook-Id of the incoming webhook request against recently received deliveries (webhook.replay_protection).',
+            suggestion: 'A delivery is accepted once. If the sender retried a delivery you already processed, answer it with a 2xx status; if not, the request was replayed.',
+        );
+    }
+
     public static function staleTimestamp(
         int $timestamp,
         int $tolerance,

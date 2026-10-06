@@ -23,7 +23,10 @@ describe('Webhook package scaffolding', function (): void {
             ->and($composer['name'])->toBe('marko/webhook')
             ->and($composer['require'])->toHaveKey('marko/http')
             ->and($composer['require'])->toHaveKey('marko/queue')
-            ->and($composer['require'])->toHaveKey('marko/config');
+            ->and($composer['require'])->toHaveKey('marko/config')
+            ->and($composer['require'])->toHaveKey('marko/encryption')
+            ->and($composer['require'])->not->toHaveKey('marko/cache')
+            ->and($composer['suggest'])->toHaveKey('marko/cache');
 
         // module.php exists and defines bindings
         $modulePath = $basePath . '/module.php';
@@ -48,6 +51,8 @@ describe('Webhook package scaffolding', function (): void {
             ->and($config)->toHaveKey('retry_delay')
             ->and($config['retry_delay'])->toBe(60)
             ->and($config)->toHaveKey('allow_http')
-            ->and($config['allow_http'])->toBeFalse();
+            ->and($config['allow_http'])->toBeFalse()
+            ->and($config['max_body_bytes'])->toBe(1048576)
+            ->and($config['replay_protection'])->toBeFalse();
     });
 });

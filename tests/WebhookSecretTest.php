@@ -22,6 +22,8 @@ function makeSecretTestReceiver(
         'webhook.max_retries' => 3,
         'webhook.retry_delay' => 60,
         'webhook.timestamp_tolerance' => 300,
+        'webhook.max_body_bytes' => 1048576,
+        'webhook.replay_protection' => false,
     ]));
 
     return new WebhookReceiver(new WebhookVerifier($clock), $config, $clock);
@@ -37,9 +39,9 @@ describe('webhook secret strength', function (): void {
         $verifier = new WebhookVerifier($clock);
         $body = '{"event":"payment.succeeded"}';
         $timestamp = (string) $clock->now()->getTimestamp();
-        $forged = 'sha256=' . hash_hmac('sha256', "$timestamp.$body", '');
+        $forged = 'sha256=' . hash_hmac('sha256', "delivery-1.$timestamp.$body", '');
 
-        expect(fn () => $verifier->verify($body, $timestamp, $forged, '', 300))
+        expect(fn () => $verifier->verify($body, $timestamp, $forged, '', 300, 'delivery-1'))
             ->toThrow(InvalidWebhookSecretException::class, 'Webhook secret is empty');
     });
 
@@ -47,9 +49,10 @@ describe('webhook secret strength', function (): void {
         $clock = new FakeClock('2026-01-01 12:00:00 UTC');
         $body = '{"event":"payment.succeeded"}';
         $timestamp = (string) $clock->now()->getTimestamp();
-        $forged = 'sha256=' . hash_hmac('sha256', "$timestamp.$body", '');
+        $forged = 'sha256=' . hash_hmac('sha256', "delivery-1.$timestamp.$body", '');
         $request = new Request(
             server: [
+                'HTTP_X_WEBHOOK_ID' => 'delivery-1',
                 'HTTP_X_WEBHOOK_SIGNATURE' => $forged,
                 'HTTP_X_WEBHOOK_TIMESTAMP' => $timestamp,
             ],
@@ -64,7 +67,7 @@ describe('webhook secret strength', function (): void {
     });
 
     it('throws when signing with an empty secret', function (): void {
-        expect(fn () => WebhookSignature::sign('{"event":"order.created"}', '', time()))
+        expect(fn () => WebhookSignature::sign('{"event":"order.created"}', '', time(), 'delivery-1'))
             ->toThrow(InvalidWebhookSecretException::class, 'Webhook secret is empty');
     });
 
@@ -74,16 +77,16 @@ describe('webhook secret strength', function (): void {
         $body = '{"event":"order.created"}';
         $timestamp = (string) $clock->now()->getTimestamp();
         $secret = str_repeat('a', WebhookSecret::MIN_LENGTH - 1);
-        $signature = 'sha256=' . hash_hmac('sha256', "$timestamp.$body", $secret);
+        $signature = 'sha256=' . hash_hmac('sha256', "delivery-1.$timestamp.$body", $secret);
 
-        expect(fn () => $verifier->verify($body, $timestamp, $signature, $secret, 300))
+        expect(fn () => $verifier->verify($body, $timestamp, $signature, $secret, 300, 'delivery-1'))
             ->toThrow(InvalidWebhookSecretException::class, 'at least 16 bytes');
     });
 
     it('throws when signing with a secret shorter than the minimum length', function (): void {
         $secret = str_repeat('a', WebhookSecret::MIN_LENGTH - 1);
 
-        expect(fn () => WebhookSignature::sign('{"event":"order.created"}', $secret, time()))
+        expect(fn () => WebhookSignature::sign('{"event":"order.created"}', $secret, time(), 'delivery-1'))
             ->toThrow(InvalidWebhookSecretException::class, 'at least 16 bytes');
     });
 
@@ -94,9 +97,9 @@ describe('webhook secret strength', function (): void {
         $timestamp = $clock->now()->getTimestamp();
         $secret = str_repeat('a', WebhookSecret::MIN_LENGTH);
 
-        $signature = WebhookSignature::sign($body, $secret, $timestamp);
+        $signature = WebhookSignature::sign($body, $secret, $timestamp, 'delivery-1');
 
-        expect($verifier->verify($body, (string) $timestamp, $signature, $secret, 300))->toBeTrue();
+        expect($verifier->verify($body, (string) $timestamp, $signature, $secret, 300, 'delivery-1'))->toBeTrue();
     });
 
     it('accepts a secret longer than the minimum length when receiving', function (): void {
@@ -106,7 +109,8 @@ describe('webhook secret strength', function (): void {
         $secret = 'whsec_a-long-enough-shared-secret';
         $request = new Request(
             server: [
-                'HTTP_X_WEBHOOK_SIGNATURE' => WebhookSignature::sign($body, $secret, $timestamp),
+                'HTTP_X_WEBHOOK_ID' => 'delivery-1',
+                'HTTP_X_WEBHOOK_SIGNATURE' => WebhookSignature::sign($body, $secret, $timestamp, 'delivery-1'),
                 'HTTP_X_WEBHOOK_TIMESTAMP' => (string) $timestamp,
             ],
             body: $body,

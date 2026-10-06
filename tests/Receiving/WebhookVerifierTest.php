@@ -14,10 +14,20 @@ describe('WebhookVerifier', function (): void {
         $body = '{"event":"order.created","data":{"order_id":123}}';
         $secret = 'my-signing-secret';
         $timestamp = (string) $clock->now()->getTimestamp();
-        $hash = hash_hmac('sha256', "$timestamp.$body", $secret);
+        $hash = hash_hmac('sha256', "delivery-1.$timestamp.$body", $secret);
         $signature = 'sha256=' . $hash;
 
-        expect($verifier->verify($body, $timestamp, $signature, $secret, 300))->toBeTrue();
+        expect($verifier->verify($body, $timestamp, $signature, $secret, 300, 'delivery-1'))->toBeTrue();
+    });
+
+    it('rejects a valid signature presented with a different delivery ID', function (): void {
+        $clock = new FakeClock('2026-01-01 12:00:00 UTC');
+        $verifier = new WebhookVerifier($clock);
+        $body = '{"event":"order.created"}';
+        $timestamp = (string) $clock->now()->getTimestamp();
+        $signature = 'sha256=' . hash_hmac('sha256', "delivery-1.$timestamp.$body", 'my-signing-secret');
+
+        expect($verifier->verify($body, $timestamp, $signature, 'my-signing-secret', 300, 'delivery-2'))->toBeFalse();
     });
 
     it('accepts a timestamp exactly at the tolerance boundary', function (): void {
@@ -25,9 +35,9 @@ describe('WebhookVerifier', function (): void {
         $verifier = new WebhookVerifier($clock);
         $body = '{"event":"order.created"}';
         $timestamp = (string) ($clock->now()->getTimestamp() - 300);
-        $signature = 'sha256=' . hash_hmac('sha256', "$timestamp.$body", 'my-signing-secret');
+        $signature = 'sha256=' . hash_hmac('sha256', "delivery-1.$timestamp.$body", 'my-signing-secret');
 
-        expect($verifier->verify($body, $timestamp, $signature, 'my-signing-secret', 300))->toBeTrue();
+        expect($verifier->verify($body, $timestamp, $signature, 'my-signing-secret', 300, 'delivery-1'))->toBeTrue();
     });
 
     it('rejects a timestamp one second past the tolerance', function (): void {
@@ -35,10 +45,10 @@ describe('WebhookVerifier', function (): void {
         $verifier = new WebhookVerifier($clock);
         $body = '{"event":"order.created"}';
         $timestamp = (string) $clock->now()->getTimestamp();
-        $signature = 'sha256=' . hash_hmac('sha256', "$timestamp.$body", 'my-signing-secret');
+        $signature = 'sha256=' . hash_hmac('sha256', "delivery-1.$timestamp.$body", 'my-signing-secret');
 
         $clock->travel('+301 seconds');
 
-        expect($verifier->verify($body, $timestamp, $signature, 'my-signing-secret', 300))->toBeFalse();
+        expect($verifier->verify($body, $timestamp, $signature, 'my-signing-secret', 300, 'delivery-1'))->toBeFalse();
     });
 });

@@ -20,8 +20,8 @@ function makeFreshRequest(
     ?string $overrideSignature = null,
     bool $omitTimestampHeader = false,
 ): Request {
-    $signature = $overrideSignature ?? WebhookSignature::sign($body, $secret, $timestamp);
-    $server = ['HTTP_X_WEBHOOK_SIGNATURE' => $signature];
+    $signature = $overrideSignature ?? WebhookSignature::sign($body, $secret, $timestamp, 'delivery-1');
+    $server = ['HTTP_X_WEBHOOK_ID' => 'delivery-1', 'HTTP_X_WEBHOOK_SIGNATURE' => $signature];
 
     if (!$omitTimestampHeader) {
         $server['HTTP_X_WEBHOOK_TIMESTAMP'] = (string) $timestamp;
@@ -45,6 +45,8 @@ function makeReceiverWithTolerance(
         'webhook.max_retries' => 3,
         'webhook.retry_delay' => 60,
         'webhook.timestamp_tolerance' => $tolerance,
+        'webhook.max_body_bytes' => 1048576,
+        'webhook.replay_protection' => false,
     ]));
 
     return new WebhookReceiver(new WebhookVerifier($clock), $config, $clock);
@@ -122,10 +124,11 @@ describe('WebhookReceiver freshness window', function (): void {
             $tamperedTimestamp = freshnessNow() - 100;
 
             // Sign with the real timestamp, but send the tampered timestamp header
-            $signature = WebhookSignature::sign($body, $secret, $realTimestamp);
+            $signature = WebhookSignature::sign($body, $secret, $realTimestamp, 'delivery-1');
 
             $request = new Request(
                 server: [
+                    'HTTP_X_WEBHOOK_ID' => 'delivery-1',
                     'HTTP_X_WEBHOOK_SIGNATURE' => $signature,
                     'HTTP_X_WEBHOOK_TIMESTAMP' => (string) $tamperedTimestamp,
                 ],
@@ -168,10 +171,11 @@ describe('WebhookReceiver freshness window', function (): void {
         $body = '{"event":"order.created","data":{"order_id":123}}';
         $timestamp = freshnessNow();
 
-        $signature = WebhookSignature::sign($body, $secret, $timestamp);
+        $signature = WebhookSignature::sign($body, $secret, $timestamp, 'delivery-1');
 
         $request = new Request(
             server: [
+                'HTTP_X_WEBHOOK_ID' => 'delivery-1',
                 'HTTP_X_WEBHOOK_SIGNATURE' => $signature,
                 'HTTP_X_WEBHOOK_TIMESTAMP' => (string) $timestamp,
             ],
@@ -192,10 +196,11 @@ describe('WebhookReceiver freshness window', function (): void {
             $body = json_encode($data);
             $timestamp = freshnessNow();
 
-            $signature = WebhookSignature::sign($body, $secret, $timestamp);
+            $signature = WebhookSignature::sign($body, $secret, $timestamp, 'delivery-1');
 
             $request = new Request(
                 server: [
+                    'HTTP_X_WEBHOOK_ID' => 'delivery-1',
                     'HTTP_X_WEBHOOK_SIGNATURE' => $signature,
                     'HTTP_X_WEBHOOK_TIMESTAMP' => (string) $timestamp,
                 ],

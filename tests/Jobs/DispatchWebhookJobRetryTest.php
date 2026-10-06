@@ -8,6 +8,7 @@ use Closure;
 use Marko\Config\ConfigRepositoryInterface;
 use Marko\Core\Container\ContainerInterface;
 use Marko\Database\Config\DatabaseTimezoneConfig;
+use Marko\Encryption\Contracts\EncryptorInterface;
 use Marko\Http\Contracts\HttpClientInterface;
 use Marko\Http\HttpResponse;
 use Marko\Queue\QueueInterface;
@@ -21,7 +22,9 @@ use Marko\Webhook\Entity\WebhookAttempt;
 use Marko\Webhook\Jobs\DispatchWebhookJob;
 use Marko\Webhook\Sending\WebhookDeliveryService;
 use Marko\Webhook\Sending\WebhookDispatcher;
+use Marko\Webhook\Tests\Fixtures\FakeEncryptor;
 use Marko\Webhook\Tests\Fixtures\FakeHostResolver;
+use Marko\Webhook\Value\SealedWebhookPayload;
 use Marko\Webhook\Value\WebhookPayload;
 use RuntimeException;
 
@@ -109,6 +112,8 @@ describe('DispatchWebhookJob retry', function (): void {
                 'webhook.max_retries' => 3,
                 'webhook.retry_delay' => 60,
                 'webhook.timestamp_tolerance' => 300,
+                'webhook.max_body_bytes' => 1048576,
+                'webhook.replay_protection' => false,
             ])),
             FakeHostResolver::policy(),
         );
@@ -132,6 +137,7 @@ describe('DispatchWebhookJob retry', function (): void {
                 string $id,
             ): object {
                 return match ($id) {
+                    EncryptorInterface::class => new FakeEncryptor(),
                     WebhookDispatcherInterface::class => $this->dispatcher,
                     WebhookDeliveryService::class => $this->deliveryService,
                     ConfigRepositoryInterface::class => $this->config,
@@ -167,7 +173,7 @@ describe('DispatchWebhookJob retry', function (): void {
         };
 
         // Attempt 1: first failure should re-queue with delay = 60 * 2^1 = 120
-        $job = new DispatchWebhookJob($payload, attemptNumber: 1);
+        $job = new DispatchWebhookJob(SealedWebhookPayload::seal($payload, new FakeEncryptor()), attemptNumber: 1);
         $job->setContainer($container);
         $job->handle();
 
@@ -265,6 +271,8 @@ describe('DispatchWebhookJob retry', function (): void {
                 'webhook.max_retries' => 3,
                 'webhook.retry_delay' => 60,
                 'webhook.timestamp_tolerance' => 300,
+                'webhook.max_body_bytes' => 1048576,
+                'webhook.replay_protection' => false,
             ])),
             FakeHostResolver::policy(),
         );
@@ -288,6 +296,7 @@ describe('DispatchWebhookJob retry', function (): void {
                 string $id,
             ): object {
                 return match ($id) {
+                    EncryptorInterface::class => new FakeEncryptor(),
                     WebhookDispatcherInterface::class => $this->dispatcher,
                     WebhookDeliveryService::class => $this->deliveryService,
                     ConfigRepositoryInterface::class => $this->config,
@@ -323,7 +332,7 @@ describe('DispatchWebhookJob retry', function (): void {
         };
 
         // Attempt 3 = max_retries, should NOT re-queue
-        $job = new DispatchWebhookJob($payload, attemptNumber: 3);
+        $job = new DispatchWebhookJob(SealedWebhookPayload::seal($payload, new FakeEncryptor()), attemptNumber: 3);
         $job->setContainer($container);
         $job->handle();
 

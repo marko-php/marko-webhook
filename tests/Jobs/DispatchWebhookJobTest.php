@@ -8,6 +8,7 @@ use Closure;
 use Marko\Config\ConfigRepositoryInterface;
 use Marko\Core\Container\ContainerInterface;
 use Marko\Database\Config\DatabaseTimezoneConfig;
+use Marko\Encryption\Contracts\EncryptorInterface;
 use Marko\Http\Contracts\HttpClientInterface;
 use Marko\Http\HttpResponse;
 use Marko\Queue\JobInterface;
@@ -22,7 +23,9 @@ use Marko\Webhook\Entity\WebhookAttempt;
 use Marko\Webhook\Jobs\DispatchWebhookJob;
 use Marko\Webhook\Sending\WebhookDeliveryService;
 use Marko\Webhook\Sending\WebhookDispatcher;
+use Marko\Webhook\Tests\Fixtures\FakeEncryptor;
 use Marko\Webhook\Tests\Fixtures\FakeHostResolver;
+use Marko\Webhook\Value\SealedWebhookPayload;
 use Marko\Webhook\Value\WebhookPayload;
 use RuntimeException;
 
@@ -108,6 +111,8 @@ describe('DispatchWebhookJob', function (): void {
                 'webhook.max_retries' => 3,
                 'webhook.retry_delay' => 60,
                 'webhook.timestamp_tolerance' => 300,
+                'webhook.max_body_bytes' => 1048576,
+                'webhook.replay_protection' => false,
             ])),
             FakeHostResolver::policy(),
         );
@@ -131,6 +136,7 @@ describe('DispatchWebhookJob', function (): void {
                 string $id,
             ): object {
                 return match ($id) {
+                    EncryptorInterface::class => new FakeEncryptor(),
                     WebhookDispatcherInterface::class => $this->dispatcher,
                     WebhookDeliveryService::class => $this->deliveryService,
                     ConfigRepositoryInterface::class => $this->config,
@@ -165,7 +171,7 @@ describe('DispatchWebhookJob', function (): void {
             }
         };
 
-        $job = new DispatchWebhookJob($payload);
+        $job = new DispatchWebhookJob(SealedWebhookPayload::seal($payload, new FakeEncryptor()));
         $job->setContainer($container);
 
         expect($job)->toBeInstanceOf(JobInterface::class);

@@ -9,6 +9,7 @@ use Marko\Config\ConfigRepositoryInterface;
 use Marko\Core\Container\ContainerInterface;
 use Marko\Database\Config\DatabaseTimezoneConfig;
 use Marko\Encryption\Config\EncryptionConfig;
+use Marko\Encryption\Contracts\EncryptorInterface;
 use Marko\Queue\FailedJob;
 use Marko\Queue\FailedJobRepositoryInterface;
 use Marko\Queue\Job;
@@ -25,6 +26,8 @@ use Marko\Webhook\Contracts\WebhookDispatcherInterface;
 use Marko\Webhook\Entity\WebhookAttempt;
 use Marko\Webhook\Jobs\DispatchWebhookJob;
 use Marko\Webhook\Sending\WebhookDeliveryService;
+use Marko\Webhook\Tests\Fixtures\FakeEncryptor;
+use Marko\Webhook\Value\SealedWebhookPayload;
 use Marko\Webhook\Value\WebhookPayload;
 use Marko\Webhook\Value\WebhookResponse;
 use RuntimeException;
@@ -42,7 +45,7 @@ final class SerializableWebhookJobTestHelpers
             url: 'https://example.com/hook',
             event: 'order.created',
             data: ['order_id' => 42],
-            secret: 'test-secret',
+            secret: 'test-signing-secret',
         );
     }
 
@@ -149,6 +152,7 @@ final class SerializableWebhookJobTestHelpers
                 string $id,
             ): object {
                 return match ($id) {
+                    EncryptorInterface::class => new FakeEncryptor(),
                     WebhookDispatcherInterface::class => $this->dispatcher,
                     WebhookDeliveryService::class => $this->deliveryService,
                     ConfigRepositoryInterface::class => $this->config,
@@ -299,7 +303,9 @@ describe('DispatchWebhookJob final failure', function (): void {
     it(
         'stores a DispatchWebhookJob that fails for the last time in the failed-job repository and keeps the worker running',
         function (): void {
-            $job = new DispatchWebhookJob(SerializableWebhookJobTestHelpers::payload());
+            $job = new DispatchWebhookJob(
+                SealedWebhookPayload::seal(SerializableWebhookJobTestHelpers::payload(), new FakeEncryptor()),
+            );
             $job->setId('webhook-final-failure');
             // queue.max_attempts is 3: this run is the job's last attempt
             $job->incrementAttempts();
@@ -342,7 +348,9 @@ describe('DispatchWebhookJob final failure', function (): void {
     );
 
     it('releases the container from DispatchWebhookJob when releaseContainer is called', function (): void {
-        $job = new DispatchWebhookJob(SerializableWebhookJobTestHelpers::payload());
+        $job = new DispatchWebhookJob(
+            SealedWebhookPayload::seal(SerializableWebhookJobTestHelpers::payload(), new FakeEncryptor()),
+        );
         $job->setContainer(SerializableWebhookJobTestHelpers::unserializableFailingContainer());
 
         $job->releaseContainer();
@@ -354,7 +362,7 @@ describe('DispatchWebhookJob final failure', function (): void {
 describe('DispatchWebhookJob serialization', function (): void {
     it('serializes and unserializes a DispatchWebhookJob without error', function (): void {
         $payload = SerializableWebhookJobTestHelpers::payload();
-        $job = new DispatchWebhookJob($payload);
+        $job = new DispatchWebhookJob(SealedWebhookPayload::seal($payload, new FakeEncryptor()));
 
         $serialized = $job->serialize();
         $unserialized = Job::unserialize($serialized);
@@ -364,7 +372,7 @@ describe('DispatchWebhookJob serialization', function (): void {
 
     it('dispatches the webhook payload when a unserialized DispatchWebhookJob is handled', function (): void {
         $payload = SerializableWebhookJobTestHelpers::payload();
-        $job = new DispatchWebhookJob($payload);
+        $job = new DispatchWebhookJob(SealedWebhookPayload::seal($payload, new FakeEncryptor()));
 
         $serialized = $job->serialize();
         /** @var DispatchWebhookJob $unserialized */
@@ -402,9 +410,43 @@ describe('DispatchWebhookJob serialization', function (): void {
             ->and($dispatched[0])->toEqual($payload);
     });
 
+    it(
+        'never writes the signing secret into the serialized job or its retry, and keeps the delivery ID',
+        function (): void {
+            $payload = SerializableWebhookJobTestHelpers::payload();
+            $job = new DispatchWebhookJob(SealedWebhookPayload::seal($payload, new FakeEncryptor()));
+            $queue = new FakeQueue();
+
+            $failingDispatcher = new class () implements WebhookDispatcherInterface
+            {
+                public function dispatch(
+                    WebhookPayload $payload,
+                ): WebhookResponse {
+                    throw new RuntimeException('Connection refused');
+                }
+            };
+
+            $job->setContainer(SerializableWebhookJobTestHelpers::container(
+                $failingDispatcher,
+                SerializableWebhookJobTestHelpers::deliveryService(),
+                new FakeConfigRepository(['webhook.max_retries' => 3, 'webhook.retry_delay' => 60]),
+                $queue,
+            ));
+            $job->handle();
+            $job->releaseContainer();
+
+            /** @var DispatchWebhookJob $retry */
+            $retry = $queue->pushed[0]['job'];
+
+            expect($job->serialize())->not->toContain($payload->secret)
+                ->and($retry->serialize())->not->toContain($payload->secret)
+                ->and($retry->payload->id)->toBe($payload->id);
+        },
+    );
+
     it('re-enqueues a retry job that is itself serializable after a webhook failure', function (): void {
         $payload = SerializableWebhookJobTestHelpers::payload();
-        $job = new DispatchWebhookJob($payload, attemptNumber: 1);
+        $job = new DispatchWebhookJob(SealedWebhookPayload::seal($payload, new FakeEncryptor()), attemptNumber: 1);
 
         $serialized = $job->serialize();
         /** @var DispatchWebhookJob $unserialized */
@@ -447,7 +489,7 @@ describe('DispatchWebhookJob serialization', function (): void {
 
     it('holds only serializable data and no live service instances on either job', function (): void {
         $payload = SerializableWebhookJobTestHelpers::payload();
-        $job = new DispatchWebhookJob($payload, attemptNumber: 2);
+        $job = new DispatchWebhookJob(SealedWebhookPayload::seal($payload, new FakeEncryptor()), attemptNumber: 2);
 
         // Serialization must succeed (no closures, PDO, or live service objects)
         $serialized = serialize($job);
@@ -460,7 +502,7 @@ describe('DispatchWebhookJob serialization', function (): void {
         'receives the container from the Worker so a webhook or notification job resolves its services in the real Worker path',
         function (): void {
             $payload = SerializableWebhookJobTestHelpers::payload();
-            $job = new DispatchWebhookJob($payload);
+            $job = new DispatchWebhookJob(SealedWebhookPayload::seal($payload, new FakeEncryptor()));
             $job->setId('webhook-job-1');
 
             $dispatched = [];
@@ -567,13 +609,13 @@ describe('DispatchWebhookJob serialization', function (): void {
 
             // The dispatcher was called, proving Worker injected the container via the ContainerAwareJobInterface gate
             expect($dispatched)->toHaveCount(1)
-                    ->and($dispatched[0])->toBe($payload);
+                    ->and($dispatched[0])->toEqual($payload);
         },
     );
 
     it('re-enqueues a webhook retry resolving the queue from the container at handle-time', function (): void {
         $payload = SerializableWebhookJobTestHelpers::payload();
-        $job = new DispatchWebhookJob($payload, attemptNumber: 1);
+        $job = new DispatchWebhookJob(SealedWebhookPayload::seal($payload, new FakeEncryptor()), attemptNumber: 1);
         $job->setId('webhook-retry-job-1');
 
         $dispatcher = new class () implements WebhookDispatcherInterface

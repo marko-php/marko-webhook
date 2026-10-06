@@ -12,6 +12,7 @@ use Marko\Testing\Fake\FakeClock;
 use Marko\Testing\Fake\FakeConfigRepository;
 use Marko\Testing\Fake\FakeHttpClient;
 use Marko\Webhook\Config\WebhookConfig;
+use Marko\Webhook\Exceptions\InvalidWebhookPayloadException;
 use Marko\Webhook\Exceptions\UnsafeWebhookUrlException;
 use Marko\Webhook\Sending\WebhookDispatcher;
 use Marko\Webhook\Sending\WebhookSignature;
@@ -99,9 +100,10 @@ describe('WebhookDispatcher', function (): void {
         $response = $dispatcher->dispatch($payload);
 
         $capturedTimestamp = (int) ($capturedOptions['headers']['X-Webhook-Timestamp'] ?? 0);
-        $expectedSignature = WebhookSignature::sign($jsonBody, $payload->secret, $capturedTimestamp);
+        $expectedSignature = WebhookSignature::sign($jsonBody, $payload->secret, $capturedTimestamp, $payload->id);
 
         expect($response)->toBeInstanceOf(WebhookResponse::class)
+            ->and($capturedOptions['headers']['X-Webhook-Id'])->toBe($payload->id)
             ->and($response->statusCode)->toBe(200)
             ->and($response->body)->toBe('OK')
             ->and($response->successful)->toBeTrue()
@@ -210,6 +212,46 @@ describe('WebhookDispatcher', function (): void {
         'private ip by hostname' => ['https://rebind.attacker.test/hook', 'a private range (192.168.0.0/16)'],
         'plain http' => ['http://example.com/webhook', 'uses the "http" scheme'],
     ]);
+
+    it('sends the same X-Webhook-Id for every send of the same payload', function (): void {
+        $httpClient = new FakeHttpClient()->stub('https://example.com/webhook', new HttpResponse(200, 'OK'));
+        $dispatcher = new WebhookDispatcher(
+            $httpClient,
+            new FakeClock(),
+            webhookDispatcherConfig(),
+            FakeHostResolver::policy(),
+        );
+        $payload = webhookDispatcherPayload();
+
+        $dispatcher->dispatch($payload);
+        $dispatcher->dispatch($payload);
+
+        expect($httpClient->requests[0]->options[RequestOptions::HEADERS]['X-Webhook-Id'])->toBe($payload->id)
+            ->and($httpClient->requests[1]->options[RequestOptions::HEADERS]['X-Webhook-Id'])->toBe($payload->id);
+    });
+
+    it('refuses to send data that cannot be encoded as JSON instead of signing an empty body', function (): void {
+        $httpClient = new FakeHttpClient()->preventStrayRequests(false);
+        $dispatcher = new WebhookDispatcher(
+            $httpClient,
+            new FakeClock(),
+            webhookDispatcherConfig(),
+            FakeHostResolver::policy(),
+        );
+        $payload = new WebhookPayload(
+            url: 'https://example.com/webhook',
+            event: 'order.created',
+            data: ['name' => "invalid \xB1\x31 utf-8"],
+            secret: 'my-signing-secret',
+        );
+
+        expect(fn () => $dispatcher->dispatch($payload))
+            ->toThrow(
+                InvalidWebhookPayloadException::class,
+                'Webhook payload for event "order.created" cannot be encoded as JSON',
+            )
+            ->and($httpClient->requests)->toBe([]);
+    });
 });
 
 function webhookDispatcherPayload(
@@ -231,5 +273,7 @@ function webhookDispatcherConfig(
         'webhook.max_retries' => 3,
         'webhook.retry_delay' => 60,
         'webhook.timestamp_tolerance' => 300,
+        'webhook.max_body_bytes' => 1048576,
+        'webhook.replay_protection' => false,
     ]));
 }

@@ -8,6 +8,7 @@ use Closure;
 use Marko\Config\ConfigRepositoryInterface;
 use Marko\Core\Container\ContainerInterface;
 use Marko\Database\Config\DatabaseTimezoneConfig;
+use Marko\Encryption\Contracts\EncryptorInterface;
 use Marko\Http\Exceptions\ConnectionException;
 use Marko\Http\HttpResponse;
 use Marko\Http\RequestOptions;
@@ -23,7 +24,9 @@ use Marko\Webhook\Entity\WebhookAttempt;
 use Marko\Webhook\Jobs\DispatchWebhookJob;
 use Marko\Webhook\Sending\WebhookDeliveryService;
 use Marko\Webhook\Sending\WebhookDispatcher;
+use Marko\Webhook\Tests\Fixtures\FakeEncryptor;
 use Marko\Webhook\Tests\Fixtures\FakeHostResolver;
+use Marko\Webhook\Value\SealedWebhookPayload;
 use Marko\Webhook\Value\WebhookPayload;
 use RuntimeException;
 
@@ -70,6 +73,7 @@ function webhookJob(
     $queue = new FakeQueue();
 
     $services = [
+        EncryptorInterface::class => new FakeEncryptor(),
         WebhookDispatcherInterface::class => new WebhookDispatcher(
             $httpClient,
             new FakeClock(),
@@ -78,6 +82,8 @@ function webhookJob(
                 'webhook.max_retries' => 3,
                 'webhook.retry_delay' => 60,
                 'webhook.timestamp_tolerance' => 300,
+                'webhook.max_body_bytes' => 1048576,
+                'webhook.replay_protection' => false,
             ])),
             FakeHostResolver::policy(),
         ),
@@ -132,11 +138,14 @@ function webhookJob(
     };
 
     $job = new DispatchWebhookJob(
-        new WebhookPayload(
-            url: $url,
-            event: 'order.created',
-            data: ['order_id' => 123],
-            secret: 'my-signing-secret',
+        SealedWebhookPayload::seal(
+            new WebhookPayload(
+                url: $url,
+                event: 'order.created',
+                data: ['order_id' => 123],
+                secret: 'my-signing-secret',
+            ),
+            new FakeEncryptor(),
         ),
         $attemptNumber,
     );

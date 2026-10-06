@@ -21,6 +21,15 @@ class InvalidWebhookSecretException extends MarkoException
         );
     }
 
+    public static function emptyConfigKey(): self
+    {
+        return new self(
+            message: '#[WebhookEndpoint] needs the config key that holds the signing secret, got an empty string.',
+            context: 'While reading the #[WebhookEndpoint] attribute of a controller. The secret is read from config at request time, never written into source.',
+            suggestion: 'Pass the config key, e.g. #[WebhookEndpoint(secretKey: \'webhook.secrets.stripe\')], and set that key from an environment variable in your config.',
+        );
+    }
+
     public static function tooShort(
         int $length,
     ): self {

@@ -16,12 +16,16 @@ describe('WebhookConfig', function (): void {
             'webhook.max_retries' => 4,
             'webhook.retry_delay' => 90,
             'webhook.timestamp_tolerance' => 120,
+            'webhook.max_body_bytes' => 2048,
+            'webhook.replay_protection' => true,
         ]));
 
         expect($config->timeout)->toBe(15)
             ->and($config->maxRetries)->toBe(4)
             ->and($config->retryDelay)->toBe(90)
-            ->and($config->timestampTolerance)->toBe(120);
+            ->and($config->timestampTolerance)->toBe(120)
+            ->and($config->maxBodyBytes)->toBe(2048)
+            ->and($config->replayProtection)->toBeTrue();
     });
 
     it('throws a config exception naming webhook.timeout when the timeout is not positive', function (
@@ -32,6 +36,8 @@ describe('WebhookConfig', function (): void {
             'webhook.max_retries' => 3,
             'webhook.retry_delay' => 60,
             'webhook.timestamp_tolerance' => 300,
+            'webhook.max_body_bytes' => 1048576,
+            'webhook.replay_protection' => false,
         ]));
 
         expect($build)->toThrow(
@@ -50,6 +56,8 @@ describe('WebhookConfig', function (): void {
             'webhook.max_retries' => 3,
             'webhook.retry_delay' => 60,
             'webhook.timestamp_tolerance' => 300,
+            'webhook.max_body_bytes' => 1048576,
+            'webhook.replay_protection' => false,
             $key => $value,
         ]));
 
@@ -59,7 +67,25 @@ describe('WebhookConfig', function (): void {
         'negative retry_delay' => ['webhook.retry_delay', -1, 'zero or a positive integer'],
         'zero timestamp_tolerance' => ['webhook.timestamp_tolerance', 0, 'a positive integer'],
         'negative timestamp_tolerance' => ['webhook.timestamp_tolerance', -5, 'a positive integer'],
+        'zero max_body_bytes' => ['webhook.max_body_bytes', 0, 'a positive integer'],
+        'negative max_body_bytes' => ['webhook.max_body_bytes', -1, 'a positive integer'],
     ]);
+
+    it('ships a 1 MiB body cap and replay protection off by default', function (): void {
+        $defaults = require dirname(__DIR__, 2) . '/config/webhook.php';
+
+        $config = new WebhookConfig(new FakeConfigRepository([
+            'webhook.timeout' => $defaults['timeout'],
+            'webhook.max_retries' => $defaults['max_retries'],
+            'webhook.retry_delay' => $defaults['retry_delay'],
+            'webhook.timestamp_tolerance' => $defaults['timestamp_tolerance'],
+            'webhook.max_body_bytes' => $defaults['max_body_bytes'],
+            'webhook.replay_protection' => $defaults['replay_protection'],
+        ]));
+
+        expect($config->maxBodyBytes)->toBe(1024 * 1024)
+            ->and($config->replayProtection)->toBeFalse();
+    });
 
     it('accepts zero retries and a zero retry delay', function (): void {
         $config = new WebhookConfig(new FakeConfigRepository([
@@ -67,6 +93,8 @@ describe('WebhookConfig', function (): void {
             'webhook.max_retries' => 0,
             'webhook.retry_delay' => 0,
             'webhook.timestamp_tolerance' => 1,
+            'webhook.max_body_bytes' => 1048576,
+            'webhook.replay_protection' => false,
         ]));
 
         expect($config->maxRetries)->toBe(0)
@@ -79,6 +107,8 @@ describe('WebhookConfig', function (): void {
             'webhook.max_retries' => 3,
             'webhook.retry_delay' => 60,
             'webhook.timestamp_tolerance' => 300,
+            'webhook.max_body_bytes' => 1048576,
+            'webhook.replay_protection' => false,
         ]));
 
         expect($build)->toThrow(ConfigNotFoundException::class);

@@ -19,6 +19,10 @@ readonly class WebhookConfig
 
     public int $timestampTolerance;
 
+    public int $maxBodyBytes;
+
+    public bool $replayProtection;
+
     /**
      * @throws ConfigException|ConfigNotFoundException
      */
@@ -37,6 +41,27 @@ readonly class WebhookConfig
             'Set it to the base number of seconds before the first retry; each later retry doubles it (e.g. 60). A negative delay is not a valid backoff.',
         );
         $this->timestampTolerance = $this->positiveTolerance($config->getInt('webhook.timestamp_tolerance'));
+        $this->maxBodyBytes = $this->positiveMaxBodyBytes($config->getInt('webhook.max_body_bytes'));
+        $this->replayProtection = $config->getBool('webhook.replay_protection');
+    }
+
+    /**
+     * A cap of 0 or less would reject every incoming webhook body.
+     *
+     * @throws ConfigException
+     */
+    private function positiveMaxBodyBytes(
+        int $maxBodyBytes,
+    ): int {
+        if ($maxBodyBytes <= 0) {
+            throw new ConfigException(
+                message: 'Configuration key "webhook.max_body_bytes" must be a positive integer',
+                context: sprintf('Got %s', var_export($maxBodyBytes, true)),
+                suggestion: 'Set it to the largest incoming webhook body, in bytes, that is verified and decoded (e.g. 1048576 for 1 MiB). A value of 0 or less would reject every incoming webhook.',
+            );
+        }
+
+        return $maxBodyBytes;
     }
 
     /**
