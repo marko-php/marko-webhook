@@ -10,6 +10,8 @@ use Marko\Http\Exceptions\HttpException;
 use Marko\Http\RequestOptions;
 use Marko\Webhook\Config\WebhookConfig;
 use Marko\Webhook\Contracts\WebhookDispatcherInterface;
+use Marko\Webhook\Contracts\WebhookUrlPolicyInterface;
+use Marko\Webhook\Exceptions\UnsafeWebhookUrlException;
 use Marko\Webhook\Value\WebhookPayload;
 use Marko\Webhook\Value\WebhookResponse;
 use Psr\Clock\ClockInterface;
@@ -20,17 +22,25 @@ readonly class WebhookDispatcher implements WebhookDispatcherInterface
         private HttpClientInterface $httpClient,
         private ClockInterface $clock,
         private WebhookConfig $config,
+        private WebhookUrlPolicyInterface $urlPolicy,
     ) {}
 
     /**
      * Returns a WebhookResponse for every HTTP response, 4xx/5xx included; throws only on transport failures.
      * The request is abandoned after webhook.timeout seconds, which surfaces as a ConnectionException.
      *
-     * @throws ConnectionException|HttpException
+     * The URL is checked against the webhook URL policy immediately before the request, and redirects are
+     * never followed, so a receiver cannot bounce the request to an address the policy would reject.
+     * marko/http has no option to pin the connection to the checked IP, so a host whose DNS answer changes
+     * between the check and the connection (DNS rebinding) is narrowed to that window, not ruled out.
+     *
+     * @throws UnsafeWebhookUrlException|ConnectionException|HttpException
      */
     public function dispatch(
         WebhookPayload $payload,
     ): WebhookResponse {
+        $this->urlPolicy->validate($payload->url);
+
         $body = json_encode(['event' => $payload->event, 'data' => $payload->data]);
         $timestamp = $this->clock->now()->getTimestamp();
         $signature = WebhookSignature::sign($body, $payload->secret, $timestamp);
@@ -43,6 +53,7 @@ readonly class WebhookDispatcher implements WebhookDispatcherInterface
             ],
             RequestOptions::BODY => $body,
             RequestOptions::HTTP_ERRORS => false,
+            RequestOptions::ALLOW_REDIRECTS => false,
             RequestOptions::TIMEOUT => $this->config->timeout,
         ]);
 

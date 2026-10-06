@@ -7,4 +7,5 @@ return [
     'max_retries' => 3,
     'retry_delay' => 60,
     'timestamp_tolerance' => 300,
+    'allow_http' => false,
 ];

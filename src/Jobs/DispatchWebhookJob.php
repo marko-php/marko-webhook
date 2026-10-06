@@ -12,6 +12,7 @@ use Marko\Queue\Job;
 use Marko\Queue\JobEnvelope;
 use Marko\Queue\QueueInterface;
 use Marko\Webhook\Contracts\WebhookDispatcherInterface;
+use Marko\Webhook\Exceptions\UnsafeWebhookUrlException;
 use Marko\Webhook\Sending\WebhookDeliveryService;
 use Marko\Webhook\Value\WebhookPayload;
 use Psr\Container\ContainerExceptionInterface;
@@ -62,6 +63,11 @@ class DispatchWebhookJob extends Job implements ContainerAwareJobInterface
         // not be mistaken for a failed delivery and re-sent.
         try {
             $response = $dispatcher->dispatch($this->payload);
+        } catch (UnsafeWebhookUrlException $e) {
+            // The URL policy rejected the destination: nothing was sent, and a retry would be rejected again.
+            $deliveryService->recordFailure($this->payload, $e->getMessage(), $this->attemptNumber);
+
+            return;
         } catch (Throwable $e) {
             // Transport failure: the receiver never answered.
             $deliveryService->recordFailure($this->payload, $e->getMessage(), $this->attemptNumber);

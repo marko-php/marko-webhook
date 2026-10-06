@@ -4,8 +4,12 @@ declare(strict_types=1);
 
 namespace Marko\Webhook\Tests\Module;
 
+use Marko\Webhook\Contracts\HostResolverInterface;
 use Marko\Webhook\Contracts\WebhookDispatcherInterface;
+use Marko\Webhook\Contracts\WebhookUrlPolicyInterface;
+use Marko\Webhook\Sending\DnsHostResolver;
 use Marko\Webhook\Sending\WebhookDispatcher;
+use Marko\Webhook\Sending\WebhookUrlPolicy;
 
 describe('Webhook package scaffolding', function (): void {
     it('creates valid package scaffolding with composer.json, module.php, and config', function (): void {
@@ -28,7 +32,9 @@ describe('Webhook package scaffolding', function (): void {
         expect($module)->toBeArray()
             ->and($module)->toHaveKey('bindings')
             ->and($module['bindings'])->toHaveKey(WebhookDispatcherInterface::class)
-            ->and($module['bindings'][WebhookDispatcherInterface::class])->toBe(WebhookDispatcher::class);
+            ->and($module['bindings'][WebhookDispatcherInterface::class])->toBe(WebhookDispatcher::class)
+            ->and($module['bindings'][WebhookUrlPolicyInterface::class])->toBe(WebhookUrlPolicy::class)
+            ->and($module['bindings'][HostResolverInterface::class])->toBe(DnsHostResolver::class);
 
         // config/webhook.php exists with required keys
         $configPath = $basePath . '/config/webhook.php';
@@ -40,6 +46,8 @@ describe('Webhook package scaffolding', function (): void {
             ->and($config)->toHaveKey('max_retries')
             ->and($config['max_retries'])->toBe(3)
             ->and($config)->toHaveKey('retry_delay')
-            ->and($config['retry_delay'])->toBe(60);
+            ->and($config['retry_delay'])->toBe(60)
+            ->and($config)->toHaveKey('allow_http')
+            ->and($config['allow_http'])->toBeFalse();
     });
 });

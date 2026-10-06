@@ -23,6 +23,7 @@ use Marko\Webhook\Entity\WebhookAttempt;
 use Marko\Webhook\Jobs\DispatchWebhookJob;
 use Marko\Webhook\Sending\WebhookDeliveryService;
 use Marko\Webhook\Sending\WebhookDispatcher;
+use Marko\Webhook\Tests\Fixtures\FakeHostResolver;
 use Marko\Webhook\Value\WebhookPayload;
 use RuntimeException;
 
@@ -63,6 +64,7 @@ function webhookJob(
     RecordingWebhookAttemptRepository $repository,
     int $attemptNumber = 1,
     array $config = ['webhook.max_retries' => 3, 'webhook.retry_delay' => 60],
+    string $url = 'https://example.com/webhook',
 ): array {
     $httpClient = new FakeHttpClient()->stub('https://example.com/webhook', $receiverResponse);
     $queue = new FakeQueue();
@@ -77,6 +79,7 @@ function webhookJob(
                 'webhook.retry_delay' => 60,
                 'webhook.timestamp_tolerance' => 300,
             ])),
+            FakeHostResolver::policy(),
         ),
         WebhookDeliveryService::class => new WebhookDeliveryService(
             $repository,
@@ -130,7 +133,7 @@ function webhookJob(
 
     $job = new DispatchWebhookJob(
         new WebhookPayload(
-            url: 'https://example.com/webhook',
+            url: $url,
             event: 'order.created',
             data: ['order_id' => 123],
             secret: 'my-secret',
@@ -274,5 +277,22 @@ describe('DispatchWebhookJob error responses', function (): void {
         expect(fn () => $job->handle())->toThrow(RuntimeException::class, 'Database is unavailable')
             ->and($queue->pushed)->toBeEmpty()
             ->and($http->requests)->toHaveCount(1);
+    });
+
+    it('records a URL the policy rejects as a final failure without sending or retrying', function (): void {
+        $repository = new RecordingWebhookAttemptRepository();
+        ['job' => $job, 'queue' => $queue, 'http' => $http] = webhookJob(
+            new HttpResponse(200, 'OK'),
+            $repository,
+            url: 'https://169.254.169.254/latest/meta-data/iam/',
+        );
+
+        $job->handle();
+
+        expect($repository->saved)->toHaveCount(1)
+            ->and($repository->saved[0]->statusCode)->toBeNull()
+            ->and($repository->saved[0]->errorMessage)->toContain('link-local range (169.254.0.0/16)')
+            ->and($queue->pushed)->toBeEmpty()
+            ->and($http->requests)->toBeEmpty();
     });
 });

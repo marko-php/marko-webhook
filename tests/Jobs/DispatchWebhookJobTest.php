@@ -22,6 +22,7 @@ use Marko\Webhook\Entity\WebhookAttempt;
 use Marko\Webhook\Jobs\DispatchWebhookJob;
 use Marko\Webhook\Sending\WebhookDeliveryService;
 use Marko\Webhook\Sending\WebhookDispatcher;
+use Marko\Webhook\Tests\Fixtures\FakeHostResolver;
 use Marko\Webhook\Value\WebhookPayload;
 use RuntimeException;
 
@@ -108,6 +109,7 @@ describe('DispatchWebhookJob', function (): void {
                 'webhook.retry_delay' => 60,
                 'webhook.timestamp_tolerance' => 300,
             ])),
+            FakeHostResolver::policy(),
         );
         $deliveryService = new WebhookDeliveryService(
             $attemptRepository,
