@@ -9,7 +9,9 @@ use Marko\Http\Exceptions\ConnectionException;
 use Marko\Http\HttpResponse;
 use Marko\Http\RequestOptions;
 use Marko\Testing\Fake\FakeClock;
+use Marko\Testing\Fake\FakeConfigRepository;
 use Marko\Testing\Fake\FakeHttpClient;
+use Marko\Webhook\Config\WebhookConfig;
 use Marko\Webhook\Sending\WebhookDispatcher;
 use Marko\Webhook\Sending\WebhookSignature;
 use Marko\Webhook\Value\WebhookPayload;
@@ -86,7 +88,7 @@ describe('WebhookDispatcher', function (): void {
         };
 
         $clock = new FakeClock('2026-01-01 12:00:00 UTC');
-        $dispatcher = new WebhookDispatcher($httpClient, $clock);
+        $dispatcher = new WebhookDispatcher($httpClient, $clock, webhookDispatcherConfig());
         $response = $dispatcher->dispatch($payload);
 
         $capturedTimestamp = (int) ($capturedOptions['headers']['X-Webhook-Timestamp'] ?? 0);
@@ -106,9 +108,19 @@ describe('WebhookDispatcher', function (): void {
     it('sends the webhook with http_errors disabled', function (): void {
         $httpClient = new FakeHttpClient()->stub('https://example.com/webhook', new HttpResponse(200, 'OK'));
 
-        new WebhookDispatcher($httpClient, new FakeClock())->dispatch(webhookDispatcherPayload());
+        $dispatcher = new WebhookDispatcher($httpClient, new FakeClock(), webhookDispatcherConfig());
+        $dispatcher->dispatch(webhookDispatcherPayload());
 
         expect($httpClient->requests[0]->options[RequestOptions::HTTP_ERRORS])->toBeFalse();
+    });
+
+    it('sends the configured webhook.timeout as the request timeout', function (): void {
+        $httpClient = new FakeHttpClient()->stub('https://example.com/webhook', new HttpResponse(200, 'OK'));
+
+        $dispatcher = new WebhookDispatcher($httpClient, new FakeClock(), webhookDispatcherConfig(timeout: 7));
+        $dispatcher->dispatch(webhookDispatcherPayload());
+
+        expect($httpClient->requests[0]->options[RequestOptions::TIMEOUT])->toBe(7);
     });
 
     it('returns an unsuccessful response when the receiver answers with a 4xx or 5xx status', function (
@@ -119,7 +131,8 @@ describe('WebhookDispatcher', function (): void {
             new HttpResponse($status, 'Receiver error'),
         );
 
-        $response = new WebhookDispatcher($httpClient, new FakeClock())->dispatch(webhookDispatcherPayload());
+        $dispatcher = new WebhookDispatcher($httpClient, new FakeClock(), webhookDispatcherConfig());
+        $response = $dispatcher->dispatch(webhookDispatcherPayload());
 
         expect($response->successful)->toBeFalse()
             ->and($response->statusCode)->toBe($status)
@@ -132,7 +145,9 @@ describe('WebhookDispatcher', function (): void {
             new ConnectionException('Connection refused'),
         );
 
-        expect(fn () => new WebhookDispatcher($httpClient, new FakeClock())->dispatch(webhookDispatcherPayload()))
+        $dispatcher = new WebhookDispatcher($httpClient, new FakeClock(), webhookDispatcherConfig());
+
+        expect(fn () => $dispatcher->dispatch(webhookDispatcherPayload()))
             ->toThrow(ConnectionException::class, 'Connection refused');
     });
 });
@@ -145,4 +160,15 @@ function webhookDispatcherPayload(): WebhookPayload
         data: ['order_id' => 123],
         secret: 'my-secret',
     );
+}
+
+function webhookDispatcherConfig(
+    int $timeout = 30,
+): WebhookConfig {
+    return new WebhookConfig(new FakeConfigRepository([
+        'webhook.timeout' => $timeout,
+        'webhook.max_retries' => 3,
+        'webhook.retry_delay' => 60,
+        'webhook.timestamp_tolerance' => 300,
+    ]));
 }

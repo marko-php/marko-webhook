@@ -192,9 +192,62 @@ describe('WebhookDeliveryService', function (): void {
         $attempt = $savedAttempts[0];
         expect($attempt->statusCode)->toBe(500)
             ->and($attempt->responseBody)->toStartWith('<html>xxx')
-            ->and($attempt->responseBody)->toEndWith('... [truncated 1513 bytes]')
+            ->toEndWith('... [truncated 1513 bytes]')
             ->and($attempt->errorMessage)->toBe('Webhook receiver responded with HTTP 500.')
             ->and($attempt->attemptNumber)->toBe(2)
             ->and($attempt->attemptedAt)->toBe('2026-01-01 12:00:00');
     });
+
+    it('caps the response body of a successful attempt at 500 bytes', function (): void {
+        $body = recordedSuccessBody('<html>' . str_repeat('x', 70000) . '</html>');
+
+        expect($body)->toStartWith('<html>xxx')
+            ->toEndWith('... [truncated 69513 bytes]')
+            ->and(strlen((string) $body))->toBeLessThan(600);
+    });
+
+    it('stores a short successful response body unchanged', function (): void {
+        expect(recordedSuccessBody('{"received":true}'))->toBe('{"received":true}');
+    });
+
+    it('trims surrounding whitespace from a successful response body', function (): void {
+        expect(recordedSuccessBody(" OK\n"))->toBe('OK');
+    });
 });
+
+/**
+ * Records a successful delivery answered with the given body and returns the stored response_body.
+ */
+function recordedSuccessBody(
+    string $body,
+): ?string {
+    $savedAttempts = [];
+
+    $repository = new class ($savedAttempts) implements WebhookAttemptRepositoryInterface
+    {
+        public function __construct(
+            /** @noinspection PhpPropertyOnlyWrittenInspection - Reference property modifies external variable */
+            private array &$savedAttempts,
+        ) {}
+
+        public function save(
+            WebhookAttempt $attempt,
+        ): WebhookAttempt {
+            $this->savedAttempts[] = $attempt;
+
+            return $attempt;
+        }
+    };
+
+    $service = new WebhookDeliveryService($repository, new FakeClock(), DatabaseTimezoneConfig::fromName('UTC'));
+    $payload = new WebhookPayload(
+        url: 'https://example.com/webhook',
+        event: 'order.created',
+        data: [],
+        secret: 'my-secret',
+    );
+
+    $service->recordSuccess($payload, new WebhookResponse(statusCode: 200, body: $body, successful: true), 1);
+
+    return $savedAttempts[0]->responseBody;
+}

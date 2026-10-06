@@ -14,6 +14,7 @@ use Marko\Queue\QueueInterface;
 use Marko\Testing\Fake\FakeClock;
 use Marko\Testing\Fake\FakeConfigRepository;
 use Marko\Testing\Fake\FakeQueue;
+use Marko\Webhook\Config\WebhookConfig;
 use Marko\Webhook\Contracts\WebhookAttemptRepositoryInterface;
 use Marko\Webhook\Contracts\WebhookDispatcherInterface;
 use Marko\Webhook\Entity\WebhookAttempt;
@@ -99,7 +100,16 @@ describe('DispatchWebhookJob retry', function (): void {
             'webhook.retry_delay' => 60,
         ]);
 
-        $dispatcher = new WebhookDispatcher($httpClient, new FakeClock());
+        $dispatcher = new WebhookDispatcher(
+            $httpClient,
+            new FakeClock(),
+            new WebhookConfig(new FakeConfigRepository([
+                'webhook.timeout' => 30,
+                'webhook.max_retries' => 3,
+                'webhook.retry_delay' => 60,
+                'webhook.timestamp_tolerance' => 300,
+            ])),
+        );
         $deliveryService = new WebhookDeliveryService(
             $attemptRepository,
             new FakeClock(),
@@ -245,7 +255,16 @@ describe('DispatchWebhookJob retry', function (): void {
             'webhook.retry_delay' => 60,
         ]);
 
-        $dispatcher = new WebhookDispatcher($httpClient, new FakeClock());
+        $dispatcher = new WebhookDispatcher(
+            $httpClient,
+            new FakeClock(),
+            new WebhookConfig(new FakeConfigRepository([
+                'webhook.timeout' => 30,
+                'webhook.max_retries' => 3,
+                'webhook.retry_delay' => 60,
+                'webhook.timestamp_tolerance' => 300,
+            ])),
+        );
         $deliveryService = new WebhookDeliveryService(
             $attemptRepository,
             new FakeClock(),
@@ -306,7 +325,7 @@ describe('DispatchWebhookJob retry', function (): void {
         $job->handle();
 
         // Should NOT have re-queued
-        expect($fakeQueue->pushed)->toHaveCount(0);
+        expect($fakeQueue->pushed)->toBeEmpty();
 
         // Should have recorded the final failure
         expect($savedAttempts)->toHaveCount(1)

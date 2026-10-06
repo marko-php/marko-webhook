@@ -14,7 +14,9 @@ use Psr\Clock\ClockInterface;
 
 /**
  * Records webhook delivery attempts. attemptedAt is written in the database
- * timezone (`database.timezone`, UTC by default).
+ * timezone (`database.timezone`, UTC by default). Every recorded response body is
+ * trimmed and capped at 500 bytes (HttpResponse::bodyExcerpt()), so a large page from
+ * the receiver cannot overflow webhook_attempts.response_body.
  */
 readonly class WebhookDeliveryService
 {
@@ -36,15 +38,14 @@ readonly class WebhookDeliveryService
         );
 
         $webhookAttempt->statusCode = $response->statusCode;
-        $webhookAttempt->responseBody = $response->body;
+        $webhookAttempt->responseBody = $this->excerpt($response);
         $webhookAttempt->attemptedAt = $this->databaseTimezoneConfig->format($this->clock->now());
 
         $this->repository->save($webhookAttempt);
     }
 
     /**
-     * Record a delivery the receiver answered with a non-2xx status. The body is capped
-     * (HttpResponse::bodyExcerpt()) so a large HTML error page does not fill the attempts table.
+     * Record a delivery the receiver answered with a non-2xx status.
      */
     public function recordRejection(
         WebhookPayload $payload,
@@ -58,7 +59,7 @@ readonly class WebhookDeliveryService
         );
 
         $webhookAttempt->statusCode = $response->statusCode;
-        $webhookAttempt->responseBody = new HttpResponse($response->statusCode, $response->body)->bodyExcerpt();
+        $webhookAttempt->responseBody = $this->excerpt($response);
         $webhookAttempt->errorMessage = "Webhook receiver responded with HTTP $response->statusCode.";
         $webhookAttempt->attemptedAt = $this->databaseTimezoneConfig->format($this->clock->now());
 
@@ -80,5 +81,11 @@ readonly class WebhookDeliveryService
         $webhookAttempt->attemptedAt = $this->databaseTimezoneConfig->format($this->clock->now());
 
         $this->repository->save($webhookAttempt);
+    }
+
+    private function excerpt(
+        WebhookResponse $response,
+    ): string {
+        return new HttpResponse($response->statusCode, $response->body)->bodyExcerpt();
     }
 }

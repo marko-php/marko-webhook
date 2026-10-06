@@ -10,11 +10,13 @@ use Marko\Core\Container\ContainerInterface;
 use Marko\Database\Config\DatabaseTimezoneConfig;
 use Marko\Http\Exceptions\ConnectionException;
 use Marko\Http\HttpResponse;
+use Marko\Http\RequestOptions;
 use Marko\Queue\QueueInterface;
 use Marko\Testing\Fake\FakeClock;
 use Marko\Testing\Fake\FakeConfigRepository;
 use Marko\Testing\Fake\FakeHttpClient;
 use Marko\Testing\Fake\FakeQueue;
+use Marko\Webhook\Config\WebhookConfig;
 use Marko\Webhook\Contracts\WebhookAttemptRepositoryInterface;
 use Marko\Webhook\Contracts\WebhookDispatcherInterface;
 use Marko\Webhook\Entity\WebhookAttempt;
@@ -66,7 +68,16 @@ function webhookJob(
     $queue = new FakeQueue();
 
     $services = [
-        WebhookDispatcherInterface::class => new WebhookDispatcher($httpClient, new FakeClock()),
+        WebhookDispatcherInterface::class => new WebhookDispatcher(
+            $httpClient,
+            new FakeClock(),
+            new WebhookConfig(new FakeConfigRepository([
+                'webhook.timeout' => 30,
+                'webhook.max_retries' => 3,
+                'webhook.retry_delay' => 60,
+                'webhook.timestamp_tolerance' => 300,
+            ])),
+        ),
         WebhookDeliveryService::class => new WebhookDeliveryService(
             $repository,
             new FakeClock(),
@@ -206,6 +217,24 @@ describe('DispatchWebhookJob error responses', function (): void {
             ->and($repository->saved[0]->errorMessage)->toBe('Connection refused')
             ->and($queue->pushed)->toHaveCount(1)
             ->and($queue->pushed[0]['delay'])->toBe(240);
+    });
+
+    it('records a timed-out request as a failure and retries it', function (): void {
+        $timeout = 'cURL error 28: Operation timed out after 30001 milliseconds with 0 bytes received';
+        $repository = new RecordingWebhookAttemptRepository();
+        ['job' => $job, 'queue' => $queue, 'http' => $http] = webhookJob(
+            new ConnectionException($timeout),
+            $repository,
+        );
+
+        $job->handle();
+
+        expect($http->requests[0]->options[RequestOptions::TIMEOUT])->toBe(30)
+            ->and($repository->saved)->toHaveCount(1)
+            ->and($repository->saved[0]->statusCode)->toBeNull()
+            ->and($repository->saved[0]->errorMessage)->toBe($timeout)
+            ->and($queue->pushed)->toHaveCount(1)
+            ->and($queue->pushed[0]['delay'])->toBe(120);
     });
 
     it('stops retrying a retryable status once max retries is reached', function (): void {
