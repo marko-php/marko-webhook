@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Marko\Webhook\Receiving;
 
+use Marko\Webhook\Exceptions\InvalidWebhookSecretException;
+use Marko\Webhook\WebhookSecret;
 use Psr\Clock\ClockInterface;
 
 class WebhookVerifier
@@ -12,6 +14,9 @@ class WebhookVerifier
         private readonly ClockInterface $clock,
     ) {}
 
+    /**
+     * @throws InvalidWebhookSecretException
+     */
     public function verify(
         string $body,
         string $timestamp,
@@ -19,6 +24,8 @@ class WebhookVerifier
         string $secret,
         int $tolerance,
     ): bool {
+        WebhookSecret::assertValid($secret);
+
         if (abs($this->clock->now()->getTimestamp() - (int) $timestamp) > $tolerance) {
             return false;
         }

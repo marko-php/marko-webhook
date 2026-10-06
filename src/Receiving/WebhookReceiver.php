@@ -8,6 +8,8 @@ use Marko\Routing\Http\Request;
 use Marko\Webhook\Config\WebhookConfig;
 use Marko\Webhook\Contracts\WebhookReceiverInterface;
 use Marko\Webhook\Exceptions\InvalidSignatureException;
+use Marko\Webhook\Exceptions\InvalidWebhookSecretException;
+use Marko\Webhook\WebhookSecret;
 use Psr\Clock\ClockInterface;
 
 class WebhookReceiver implements WebhookReceiverInterface
@@ -21,12 +23,14 @@ class WebhookReceiver implements WebhookReceiverInterface
     /**
      * @return array<string, mixed>
      *
-     * @throws InvalidSignatureException
+     * @throws InvalidSignatureException|InvalidWebhookSecretException
      */
     public function receive(
         Request $request,
         string $secret,
     ): array {
+        WebhookSecret::assertValid($secret);
+
         $body = $request->body();
         $signature = $request->header('X-Webhook-Signature') ?? '';
         $timestamp = $request->header('X-Webhook-Timestamp');

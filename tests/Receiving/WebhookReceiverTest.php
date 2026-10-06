@@ -42,12 +42,12 @@ describe('WebhookReceiver', function (): void {
             ],
         );
 
-        expect(fn () => $receiver->receive($request, 'my-secret'))
+        expect(fn () => $receiver->receive($request, 'my-signing-secret'))
             ->toThrow(InvalidSignatureException::class);
     });
 
     it('parses JSON payloads from incoming webhook request bodies', function (): void {
-        $secret = 'my-secret';
+        $secret = 'my-signing-secret';
         $data = ['event' => 'order.created', 'data' => ['order_id' => 123]];
         $body = json_encode($data);
         $timestamp = webhookReceiverNow();
