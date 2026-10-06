@@ -50,6 +50,28 @@ describe('SealedWebhookPayload', function (): void {
             ->toThrow(InvalidWebhookSecretException::class);
     });
 
+    it('refuses to decrypt a secret moved into a payload for another URL or delivery', function (
+        string $url,
+        string $id,
+    ): void {
+        $payload = new WebhookPayload('https://example.com/webhook', 'order.created', [], 'whsec-subscriber-secret');
+        $encryptor = new FakeEncryptor();
+        $sealed = SealedWebhookPayload::seal($payload, $encryptor);
+
+        $moved = new SealedWebhookPayload(
+            url: $url === '' ? $sealed->url : $url,
+            event: $sealed->event,
+            data: $sealed->data,
+            id: $id === '' ? $sealed->id : $id,
+            encryptedSecret: $sealed->encryptedSecret,
+        );
+
+        expect(fn () => $moved->unseal($encryptor))->toThrow(DecryptionException::class);
+    })->with([
+        'other url' => ['https://attacker.example/collect', ''],
+        'other delivery' => ['', 'delivery-2'],
+    ]);
+
     it('fails loudly when the secret cannot be decrypted', function (): void {
         $sealed = new SealedWebhookPayload(
             url: 'https://example.com/webhook',

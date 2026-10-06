@@ -44,8 +44,19 @@ readonly class SealedWebhookPayload
             event: $payload->event,
             data: $payload->data,
             id: $payload->id,
-            encryptedSecret: $encryptor->encrypt($payload->secret),
+            encryptedSecret: $encryptor->encrypt($payload->secret, self::associatedData($payload->id, $payload->url)),
         );
+    }
+
+    /**
+     * The ciphertext is bound to the delivery ID and URL, so an encrypted secret copied into another
+     * job (for example one pointing at an attacker's URL) fails to decrypt instead of signing for it.
+     */
+    private static function associatedData(
+        string $id,
+        string $url,
+    ): string {
+        return "marko/webhook:$id:$url";
     }
 
     /**
@@ -58,7 +69,7 @@ readonly class SealedWebhookPayload
             url: $this->url,
             event: $this->event,
             data: $this->data,
-            secret: $encryptor->decrypt($this->encryptedSecret),
+            secret: $encryptor->decrypt($this->encryptedSecret, self::associatedData($this->id, $this->url)),
             id: $this->id,
         );
     }
