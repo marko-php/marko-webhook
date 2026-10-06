@@ -7,6 +7,7 @@ namespace Marko\Webhook\Sending;
 use Marko\Http\Contracts\HttpClientInterface;
 use Marko\Http\Exceptions\ConnectionException;
 use Marko\Http\Exceptions\HttpException;
+use Marko\Http\RequestOptions;
 use Marko\Webhook\Contracts\WebhookDispatcherInterface;
 use Marko\Webhook\Value\WebhookPayload;
 use Marko\Webhook\Value\WebhookResponse;
@@ -20,6 +21,8 @@ readonly class WebhookDispatcher implements WebhookDispatcherInterface
     ) {}
 
     /**
+     * Returns a WebhookResponse for every HTTP response, 4xx/5xx included; throws only on transport failures.
+     *
      * @throws ConnectionException|HttpException
      */
     public function dispatch(
@@ -30,12 +33,13 @@ readonly class WebhookDispatcher implements WebhookDispatcherInterface
         $signature = WebhookSignature::sign($body, $payload->secret, $timestamp);
 
         $httpResponse = $this->httpClient->post($payload->url, [
-            'headers' => [
+            RequestOptions::HEADERS => [
                 'Content-Type' => 'application/json',
                 'X-Webhook-Signature' => $signature,
                 'X-Webhook-Timestamp' => (string) $timestamp,
             ],
-            'body' => $body,
+            RequestOptions::BODY => $body,
+            RequestOptions::HTTP_ERRORS => false,
         ]);
 
         return new WebhookResponse(

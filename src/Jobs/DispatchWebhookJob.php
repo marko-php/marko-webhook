@@ -58,32 +58,56 @@ class DispatchWebhookJob extends Job implements ContainerAwareJobInterface
         $dispatcher = $this->container->get(WebhookDispatcherInterface::class);
         $deliveryService = $this->container->get(WebhookDeliveryService::class);
 
+        // Only the send sits in the try: a failure while recording a delivered webhook must surface,
+        // not be mistaken for a failed delivery and re-sent.
         try {
             $response = $dispatcher->dispatch($this->payload);
-            $deliveryService->recordSuccess($this->payload, $response, $this->attemptNumber);
         } catch (Throwable $e) {
-            try {
-                /** @var ConfigRepositoryInterface $config */
-                $config = $this->container->get(ConfigRepositoryInterface::class);
-                $maxRetries = $config->getInt('webhook.max_retries');
-                $retryDelay = $config->getInt('webhook.retry_delay');
-            } catch (ConfigNotFoundException) {
-                // If config values are missing, we won't retry and just log the failure.
-                $deliveryService->recordFailure($this->payload, $e->getMessage(), $this->attemptNumber);
-
-                return;
-            }
-
+            // Transport failure: the receiver never answered.
             $deliveryService->recordFailure($this->payload, $e->getMessage(), $this->attemptNumber);
+            $this->scheduleRetry($this->container);
 
-            if ($this->attemptNumber < $maxRetries) {
-                $delay = $retryDelay * (2 ** $this->attemptNumber);
-                $nextJob = new self($this->payload, $this->attemptNumber + 1);
-
-                /** @var QueueInterface $queue */
-                $queue = $this->container->get(QueueInterface::class);
-                $queue->later($delay, $nextJob);
-            }
+            return;
         }
+
+        if ($response->successful) {
+            $deliveryService->recordSuccess($this->payload, $response, $this->attemptNumber);
+
+            return;
+        }
+
+        $deliveryService->recordRejection($this->payload, $response, $this->attemptNumber);
+
+        // 408, 429 and 5xx may succeed later; other non-2xx statuses are final.
+        if ($response->isRetryable()) {
+            $this->scheduleRetry($this->container);
+        }
+    }
+
+    /**
+     * Re-queue the next attempt with exponential backoff, unless retries are exhausted or not configured.
+     *
+     * @throws ContainerExceptionInterface|NotFoundExceptionInterface
+     */
+    private function scheduleRetry(
+        ContainerInterface $container,
+    ): void {
+        try {
+            /** @var ConfigRepositoryInterface $config */
+            $config = $container->get(ConfigRepositoryInterface::class);
+            $maxRetries = $config->getInt('webhook.max_retries');
+            $retryDelay = $config->getInt('webhook.retry_delay');
+        } catch (ConfigNotFoundException) {
+            // Without retry config the attempt is recorded but never retried.
+            return;
+        }
+
+        if ($this->attemptNumber >= $maxRetries) {
+            return;
+        }
+
+        /** @var QueueInterface $queue */
+        $queue = $container->get(QueueInterface::class);
+        $queue->later($retryDelay * (2 ** $this->attemptNumber), new self($this->payload, $this->attemptNumber + 1));
     }
 }
