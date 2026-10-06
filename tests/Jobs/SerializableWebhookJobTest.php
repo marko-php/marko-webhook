@@ -307,6 +307,7 @@ describe('DispatchWebhookJob final failure', function (): void {
                 SerializableWebhookJobTestHelpers::queueConfig(),
                 SerializableWebhookJobTestHelpers::envelope(),
                 SerializableWebhookJobTestHelpers::unserializableFailingContainer(),
+                clock: new FakeClock(),
             );
             $stopJob->worker = $worker;
 
@@ -529,7 +530,14 @@ describe('DispatchWebhookJob serialization', function (): void {
             $queueConfig = SerializableWebhookJobTestHelpers::queueConfig();
 
             // Drive through Worker::work() — NOT a manual setContainer() call
-            $worker = new Worker($workerQueue, $failedRepository, $queueConfig, $envelope, $container);
+            $worker = new Worker(
+                $workerQueue,
+                $failedRepository,
+                $queueConfig,
+                $envelope,
+                $container,
+                clock: new FakeClock(),
+            );
             $worker->work(once: true);
 
             // The dispatcher was called, proving Worker injected the container via the ContainerAwareJobInterface gate
@@ -621,7 +629,14 @@ describe('DispatchWebhookJob serialization', function (): void {
         $queueConfig = SerializableWebhookJobTestHelpers::queueConfig();
 
         // Drive through Worker::work() so the container is injected via ContainerAwareJobInterface gate
-        $worker = new Worker($workerQueue, $failedRepository, $queueConfig, $envelope, $container);
+        $worker = new Worker(
+            $workerQueue,
+            $failedRepository,
+            $queueConfig,
+            $envelope,
+            $container,
+            clock: new FakeClock(),
+        );
         $worker->work(once: true);
 
         // The retry job must have been pushed to the retryQueue (resolved from container at handle-time)
